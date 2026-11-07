@@ -8,6 +8,9 @@
     uv run python -m seldon.download cow
     uv run python -m seldon.download polity
     uv run python -m seldon.download wdi
+    uv run python -m seldon.download jst
+    uv run python -m seldon.download boe
+    uv run python -m seldon.download gmd
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -35,6 +38,7 @@ from seldon import DATA_RAW
 
 UCDP_VERSION = "25.1"
 UCDP_V = UCDP_VERSION.replace(".", "")  # "251" — так в именах файлов на сайте
+GMD_VERSION = "2026_09"  # релиз Global Macro Database; список версий — helpers/versions.csv
 
 SOURCES: dict[str, dict] = {
     # UCDP — Uppsala Conflict Data Program. Три набора:
@@ -102,8 +106,46 @@ SOURCES: dict[str, dict] = {
         "indicators": {
             "SP.DYN.IMRT.IN": "infant_mortality",  # смертность до 1 года на 1000 рождений
             "SP.POP.TOTL": "population",
+            # для блока «экономика»: кредит частному сектору (% ВВП) из Global Financial
+            # Development (FD.*, с 1990-х для постсоветских; у FS.AST.PRVT.GD.ZS ряды короче) —
+            # замена JST tloans/gdp для стран вне JST; резервы в долларах
+            "FD.AST.PRVT.GD.ZS": "credit_gdp",
+            "FI.RES.TOTL.CD": "reserves_usd",
         },
         "api": "https://api.worldbank.org/v2/country/all/indicator/{ind}?format=json&per_page=20000&date=1960:2025",
+    },
+    # Jordà–Schularick–Taylor Macrohistory Database (macrohistory.net), релиз R6:
+    # 18 развитых стран с 1870 года, по годам. Кредит, ВВП, цены, ставки, счёт текущих
+    # операций, цены на жильё и дамми системного финансового кризиса (crisisJST).
+    # Данные модели Банка Англии (Bluwstein и др.). Без регистрации, CC BY-NC-SA.
+    "jst": {
+        "files": {
+            "JSTdatasetR6.xlsx": "https://www.macrohistory.net/app/download/9834512569/JSTdatasetR6.xlsx?t=1763503850",
+            "JST_documentationR6.pdf": "https://www.macrohistory.net/app/download/9834516169/JST_documentationR6.pdf?t=1676279836",
+            "JSTcrisis_chronology.pdf": "https://www.macrohistory.net/app/download/9844625569/JSTcrisis_chronology.pdf",
+        },
+        "unzip": False,
+    },
+    # Банк Англии — код к Staff Working Paper 848 (Bluwstein, Buckmann, Joseph, Kapadia,
+    # Şimşek, 2020; позже Journal of International Economics 2023): Python + R. Берём
+    # архив репозитория целиком: в нём лежит JST R3 (data/JSTdatasetR3.xlsx) — ровно тот
+    # файл, на котором считалась статья, — и скрипты подготовки признаков (make_data.py).
+    "boe": {
+        "files": {
+            "MachineLearningCrisisPrediction-master.zip": "https://github.com/bank-of-england/MachineLearningCrisisPrediction/archive/refs/heads/master.zip",
+        },
+        "unzip": True,
+    },
+    # Global Macro Database (Müller, Xu, Lehbib, Chen; globalmacrodata.com) — 46 рядов по
+    # 239 странам, в т.ч. постсоветским. Файл Stata лежит на S3 авторов, тот же, что
+    # качает их пакет `global_macro_data`; регистрация не нужна. CC BY-NC-SA.
+    "gmd": {
+        "files": {
+            "versions.csv": "https://gmd-releases.s3.ap-southeast-2.amazonaws.com/data/helpers/versions.csv",
+            "varlist.csv": "https://raw.githubusercontent.com/KMueller-Lab/Global-Macro-Database/refs/heads/main/data/helpers/varlist.csv",
+            f"GMD_{GMD_VERSION}.dta": f"https://gmd-releases.s3.ap-southeast-2.amazonaws.com/data/distribute/GMD_{GMD_VERSION}.dta",
+        },
+        "unzip": False,
     },
 }
 
@@ -283,9 +325,12 @@ FETCHERS = {
     "cow": lambda: fetch_static("cow"),
     "polity": lambda: fetch_static("polity"),
     "wdi": fetch_wdi,
+    "jst": lambda: fetch_static("jst"),
+    "boe": lambda: fetch_static("boe"),
+    "gmd": lambda: fetch_static("gmd"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd"]
 
 
 def main(argv: list[str]) -> int:

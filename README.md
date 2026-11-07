@@ -21,7 +21,7 @@
 uv sync
 ```
 
-Скачать данные первого этапа (UCDP, PITF, conflictforecast, списки государств и соседей) в `data/raw/`:
+Скачать все данные (UCDP, PITF, conflictforecast, списки государств и соседей, Polity, ВБ, JST, код BoE, GMD) в `data/raw/`:
 
 ```bash
 uv run python -m seldon.download all
@@ -43,7 +43,7 @@ src/seldon/      код: загрузчики данных, признаки, м
 reports/         отчёты по сессиям
 ```
 
-## Данные первого этапа
+## Данные
 
 | Источник | Что внутри | Зачем |
 | --- | --- | --- |
@@ -52,3 +52,8 @@ reports/         отчёты по сессиям
 | [conflictforecast.org](https://conflictforecast.org) | ежемесячные прогнозы по странам и ячейкам | эталон для сравнения |
 | [Gleditsch & Ward](http://ksgleditsch.com/data-4.html) | список независимых государств с датами | «тихие» страны в панели |
 | [COW Direct Contiguity 3.2](https://correlatesofwar.org/data-sets/direct-contiguity/) | кто с кем граничит, по годам | целевая «сторона конфликта у соседа», признак «война у соседей» |
+| [Polity5](https://www.systemicpeace.org/inscrdata.html) | тип политического режима, 1800–2018 | признаки PITF (режим, фракционность) |
+| [Всемирный банк, WDI/GFD](https://data.worldbank.org) (открытый API) | детская смертность, население, кредит частному сектору (% ВВП), резервы | признаки PITF; кредит для стран вне JST |
+| [JST Macrohistory Database](https://www.macrohistory.net/database/), R6 | 18 развитых стран с 1870: кредит, ВВП, ставки, цены, кризисы | данные модели Банка Англии |
+| [Bank of England SWP 848](https://github.com/bank-of-england/MachineLearningCrisisPrediction) | код статьи Bluwstein и др. + JST R3 | повторение модели экономических кризисов |
+| [Global Macro Database](https://www.globalmacrodata.com), 2026_09 | 46 рядов по 239 странам, вкл. постсоветские; дамми кризисов | панель для постсоветских стран |
