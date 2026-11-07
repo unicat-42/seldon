@@ -88,7 +88,7 @@ FEATURES = [
 def build() -> pd.DataFrame:
     panel = pd.read_parquet(DATA_PROCESSED / "panel_country_year.parquet")
     p = neighbor_features(own_history(panel))
-    keep = ["gw", "country", "year", "conflict25", "onset25", "war25", "onset_war25", *FEATURES]
+    keep = ["gw", "country", "year", "conflict25", "onset25", "war25", "onset_war25", "war1000", "onset_war1000", *FEATURES]
     return p[keep].sort_values(["gw", "year"]).reset_index(drop=True)
 
 

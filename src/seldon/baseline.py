@@ -41,7 +41,7 @@ TRAIN_YEARS = range(1995, 2024)  # T: учимся по T, предсказыв�
 HALF_LIVES = (1, 3, 5)
 MODELS = ("last", "decay", "base_rate")
 TARGET, ONSET = "conflict25", "onset25"  # переопределяются в main() аргументом командной строки
-ONSET_OF = {"conflict25": "onset25", "war25": "onset_war25"}
+ONSET_OF = {"conflict25": "onset25", "war25": "onset_war25", "war1000": "onset_war1000"}
 
 
 def load_panel() -> pd.DataFrame:

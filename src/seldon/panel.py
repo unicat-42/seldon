@@ -22,6 +22,9 @@
     war25          1, если conflict25 == 1 ИЛИ party25 == 1 — «страна воюет»: либо на её
                    территории, либо она сторона конфликта
     onset_war25    начало по war25
+    war1000        1, если ≥ 1000 погибших на территории ИЛИ в конфликтах, где страна сторона
+                   («война» по порогу UCDP)
+    onset_war1000  начало по war1000
 
 Как считаем:
   - `conflict25` — по стране, на территории которой произошли события (`country_id` в GED).
@@ -143,7 +146,9 @@ def add_targets(panel: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     panel["conflict1000"] = (panel["deaths_best"] >= 1000).astype("int8")
     panel["party25"] = (panel["deaths_party"] >= 25).astype("int8")
     panel["war25"] = panel[["conflict25", "party25"]].max(axis=1).astype("int8")
-    for target, onset in (("conflict25", "onset25"), ("war25", "onset_war25")):
+    # «война» по UCDP: ≥1000 погибших — на территории или в конфликтах, где страна сторона
+    panel["war1000"] = ((panel["deaths_best"] >= 1000) | (panel["deaths_party"] >= 1000)).astype("int8")
+    for target, onset in (("conflict25", "onset25"), ("war25", "onset_war25"), ("war1000", "onset_war1000")):
         prev = panel.groupby("gw")[target].shift(1).fillna(0).astype("int8")
         panel[onset] = ((panel[target] == 1) & (prev == 0)).astype("int8")
     return panel
