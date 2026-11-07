@@ -6,6 +6,8 @@
     uv run python -m seldon.download conflictforecast
     uv run python -m seldon.download gw
     uv run python -m seldon.download cow
+    uv run python -m seldon.download polity
+    uv run python -m seldon.download wdi
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -87,6 +89,21 @@ SOURCES: dict[str, dict] = {
             "DirectContiguity320.zip": "https://correlatesofwar.org/wp-content/uploads/DirectContiguity320.zip",
         },
         "unzip": True,
+    },
+    # Polity5 (Center for Systemic Peace) — тип политического режима по странам и годам,
+    # 1800–2018. Нужен для признаков PITF: polity2, parcomp (фракционность), exrec.
+    "polity": {
+        "files": {"p5v2018.xls": "https://www.systemicpeace.org/inscr/p5v2018.xls"},
+        "unzip": False,
+    },
+    # Всемирный банк, World Development Indicators — через открытый API, без ключа.
+    # Детская смертность (признак PITF) и население (для «погибших на душу»).
+    "wdi": {
+        "indicators": {
+            "SP.DYN.IMRT.IN": "infant_mortality",  # смертность до 1 года на 1000 рождений
+            "SP.POP.TOTL": "population",
+        },
+        "api": "https://api.worldbank.org/v2/country/all/indicator/{ind}?format=json&per_page=20000&date=1960:2025",
     },
 }
 
@@ -187,6 +204,40 @@ def fetch_conflictforecast() -> None:
     write_manifest(folder, entries)
 
 
+def fetch_wdi() -> None:
+    """Всемирный банк: каждый индикатор — в CSV страна-год (iso3, country, year, value)."""
+    spec = SOURCES["wdi"]
+    folder = DATA_RAW / "wdi"
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"[wdi] → {folder}")
+    entries = []
+    for ind, name in spec["indicators"].items():
+        dest = folder / f"{name}.csv"
+        url = spec["api"].format(ind=ind)
+        if dest.exists() and dest.stat().st_size > 0:
+            print(f"  есть, пропускаю: {dest.name}")
+            entries.append({"url": url, "file": dest.name, "bytes": dest.stat().st_size, "skipped": True})
+            continue
+        r = requests.get(url, headers=HEADERS, timeout=120)
+        r.raise_for_status()
+        meta, rows = r.json()
+        if meta.get("pages", 1) != 1:
+            raise RuntimeError(f"WDI {ind}: ответ на {meta['pages']} страниц, ожидалась одна")
+        with open(dest, "w") as f:
+            f.write("iso3,country,year,value\n")
+            for row in rows:
+                if row["value"] is None:
+                    continue
+                f.write(f'{row["countryiso3code"]},"{row["country"]["value"]}",{row["date"]},{row["value"]}\n')
+        print(f"  скачано: {dest.name} ({len(rows)} строк)")
+        entries.append({
+            "url": url, "file": dest.name, "bytes": dest.stat().st_size,
+            "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "wdi_lastupdated": meta.get("lastupdated"),
+        })
+    write_manifest(folder, entries)
+
+
 def fetch_acled() -> None:
     """ACLED — события насилия и протестов. Нужна регистрация на acleddata.com.
 
@@ -230,9 +281,11 @@ FETCHERS = {
     "conflictforecast": fetch_conflictforecast,
     "gw": lambda: fetch_static("gw"),
     "cow": lambda: fetch_static("cow"),
+    "polity": lambda: fetch_static("polity"),
+    "wdi": fetch_wdi,
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi"]
 
 
 def main(argv: list[str]) -> int:

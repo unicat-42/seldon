@@ -1,7 +1,8 @@
 """Первая модель с признаками: логистическая регрессия на истории конфликтов.
 
 Запуск:
-    uv run python -m seldon.model_hist
+    uv run python -m seldon.model_hist          # признаки истории (features.py)
+    uv run python -m seldon.model_hist pitf     # история + режим/смертность/население (features_pitf.py)
 
 Что делает:
   - берёт признаки из features.py (все считаются по данным до года T включительно);
@@ -29,16 +30,23 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, PROJECT_ROOT
-from seldon.features import FEATURES
+from seldon.features import FEATURES as HIST_FEATURES
+from seldon.features_pitf import PITF_FEATURES
 
 REPORTS = PROJECT_ROOT / "reports"
 TARGET, ONSET = "war25", "onset_war25"
 TRAIN_YEARS = range(1995, 2024)
+FEATURE_SETS = {
+    "hist": (HIST_FEATURES, "features_country_year.parquet"),
+    "pitf": ([*HIST_FEATURES, *PITF_FEATURES], "features_pitf_country_year.parquet"),
+}
+NAME = "hist"  # переопределяется в main()
+FEATURES = HIST_FEATURES
 MODELS = ("hist", "decay")
 
 
 def load() -> pd.DataFrame:
-    f = pd.read_parquet(DATA_PROCESSED / "features_country_year.parquet")
+    f = pd.read_parquet(DATA_PROCESSED / FEATURE_SETS[NAME][1])
     # целевая следующего года на строку текущего
     nxt = f[["gw", "year", TARGET, ONSET]].assign(year=lambda d: d.year - 1)
     nxt = nxt.rename(columns={TARGET: "y_next", ONSET: "onset_next"})
@@ -53,9 +61,9 @@ def predict_year(f: pd.DataFrame, T: int) -> tuple[pd.DataFrame, pd.Series]:
     train = f[(f.year <= T - 1) & f.y_next.notna()]
     test = f[(f.year == T) & f.y_next.notna()].copy()
     m = make_model().fit(train[FEATURES], train.y_next.astype(int))
-    test["hist"] = m.predict_proba(test[FEATURES])[:, 1]
+    test[NAME] = m.predict_proba(test[FEATURES])[:, 1]
     coef = pd.Series(m[-1].coef_[0], index=FEATURES, name=T + 1)
-    out = test[["gw", "country", "y_next", "onset_next", "war_now", "hist"]].rename(
+    out = test[["gw", "country", "y_next", "onset_next", "war_now", NAME]].rename(
         columns={"y_next": TARGET, "onset_next": ONSET}
     )
     out["year"] = T + 1
@@ -81,7 +89,15 @@ def evaluate(pred: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def main() -> None:
+def main(argv: list[str]) -> int:
+    global NAME, FEATURES, MODELS
+    if argv:
+        if argv[0] not in FEATURE_SETS:
+            print(f"неизвестный набор признаков {argv[0]!r}; доступны: {', '.join(FEATURE_SETS)}")
+            return 2
+        NAME = argv[0]
+    FEATURES = FEATURE_SETS[NAME][0]
+
     f = load()
     preds, coefs = [], []
     for T in TRAIN_YEARS:
@@ -93,23 +109,31 @@ def main() -> None:
 
     base = pd.read_parquet(DATA_PROCESSED / "baseline_predictions_war25.parquet")[["gw", "year", "decay"]]
     pred = pred.merge(base, on=["gw", "year"], how="inner")
+    MODELS = (NAME, "decay")
+    if NAME != "hist":  # для сравнения подкладываем прогнозы модели только на истории
+        hist = pd.read_parquet(DATA_PROCESSED / "hist_predictions.parquet")[["gw", "year", "hist"]]
+        pred = pred.merge(hist, on=["gw", "year"], how="inner")
+        MODELS = (NAME, "hist", "decay")
 
     metrics = evaluate(pred)
     summary = pd.DataFrame(
         {m: {k: metrics[f"{m}_{k}"].mean() for k in ("brier", "auc", "brier_onset", "auc_onset")} for m in MODELS}
     ).T
 
-    pred.to_parquet(DATA_PROCESSED / "hist_predictions.parquet", index=False)
-    metrics.to_csv(REPORTS / "hist_metrics_by_year.csv", index=False, float_format="%.4f")
-    summary.to_csv(REPORTS / "hist_metrics_summary.csv", float_format="%.4f")
-    coefs.round(3).to_csv(REPORTS / "hist_coefficients.csv")
+    pred.to_parquet(DATA_PROCESSED / f"{NAME}_predictions.parquet", index=False)
+    metrics.to_csv(REPORTS / f"{NAME}_metrics_by_year.csv", index=False, float_format="%.4f")
+    summary.to_csv(REPORTS / f"{NAME}_metrics_summary.csv", float_format="%.4f")
+    coefs.round(3).to_csv(REPORTS / f"{NAME}_coefficients.csv")
 
-    print(f"прогнозов: {len(pred)} строк, годы {pred.year.min()}–{pred.year.max()}")
-    print("\nСреднее по годам проверки (hist — логрегрессия на признаках, decay — базовая):")
+    print(f"набор признаков: {NAME} ({len(FEATURES)}); прогнозов: {len(pred)} строк, годы {pred.year.min()}–{pred.year.max()}")
+    print("\nСреднее по годам проверки:")
     print(summary.round(4).to_string())
     print("\nКоэффициенты (стандартизованные; последняя модель, обучена по 2023):")
     print(coefs.iloc[:, -1].sort_values(key=abs, ascending=False).round(3).to_string())
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    sys.exit(main(sys.argv[1:]))
