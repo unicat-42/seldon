@@ -19,6 +19,7 @@ dependencies = [
     "pyarrow>=26.0.1",
     "pyreadstat>=1.3.7",
     "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
     "tqdm>=4.70.1",
     "xlrd>=2.0.2",
 ]

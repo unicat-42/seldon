@@ -4,6 +4,7 @@
     uv run python -m seldon.download ucdp
     uv run python -m seldon.download pitf
     uv run python -m seldon.download conflictforecast
+    uv run python -m seldon.download gw
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -68,6 +69,13 @@ SOURCES: dict[str, dict] = {
             "https://api.backendless.com/C177D0DC-B3D5-818C-FF1E-1CC11BC69600/"
             "C5F2917E-C2F6-4F7D-9063-69555274134E/services/fileService/get-latest-file-listing"
         ),
+        "unzip": False,
+    },
+    # Gleditsch & Ward — список независимых государств с датами существования.
+    # Нужен, чтобы в панели были все страны мира, включая «тихие» без единого
+    # события в UCDP (Беларусь, Казахстан, Балтия). Коды те же, что в UCDP.
+    "gw": {
+        "files": {"iisystem.dat": "http://ksgleditsch.com/data/iisystem.dat"},
         "unzip": False,
     },
 }
@@ -210,9 +218,10 @@ FETCHERS = {
     "ucdp": lambda: fetch_static("ucdp"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
+    "gw": lambda: fetch_static("gw"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw"]
 
 
 def main(argv: list[str]) -> int:
