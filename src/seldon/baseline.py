@@ -1,9 +1,12 @@
 """Базовые модели «следующий год похож на прошлые» и их проверка вслепую.
 
 Запуск:
-    uv run python -m seldon.baseline
+    uv run python -m seldon.baseline            # целевая conflict25 (по территории)
+    uv run python -m seldon.baseline war25      # целевая war25 (территория ИЛИ сторона конфликта)
 
-Модели (все — без признаков, только история целевой переменной conflict25):
+Для целевой, отличной от conflict25, выходные файлы получают суффикс `_war25`.
+
+Модели (все — без признаков, только история целевой переменной):
     last       вероятность = был ли конфликт (≥25 погибших) в стране в прошлом году (0 или 1)
     decay      экспоненциально затухающая память: m_t = (1 − α)·m_{t−1} + α·conflict_t,
                где α задаётся полураспадом h (через h лет без конфликта память падает вдвое).
@@ -37,6 +40,8 @@ REPORTS = PROJECT_ROOT / "reports"
 TRAIN_YEARS = range(1995, 2024)  # T: учимся по T, предсказываем T+1 (1996…2024)
 HALF_LIVES = (1, 3, 5)
 MODELS = ("last", "decay", "base_rate")
+TARGET, ONSET = "conflict25", "onset25"  # переопределяются в main() аргументом командной строки
+ONSET_OF = {"conflict25": "onset25", "war25": "onset_war25"}
 
 
 def load_panel() -> pd.DataFrame:
@@ -46,7 +51,7 @@ def load_panel() -> pd.DataFrame:
 def decay_memory(panel: pd.DataFrame, half_life: float) -> pd.Series:
     """Память о конфликтах на конец каждого года (включая этот год), по странам."""
     alpha = 1 - 0.5 ** (1 / half_life)
-    return panel.groupby("gw")["conflict25"].transform(
+    return panel.groupby("gw")[TARGET].transform(
         lambda s: s.ewm(alpha=alpha, adjust=False).mean()
     )
 
@@ -59,7 +64,7 @@ def choose_half_life(panel: pd.DataFrame, upto: int) -> int:
         mem = decay_memory(train, h)
         pred = mem.groupby(train["gw"]).shift(1)
         mask = pred.notna()
-        brier = ((pred[mask] - train.loc[mask, "conflict25"]) ** 2).mean()
+        brier = ((pred[mask] - train.loc[mask, TARGET]) ** 2).mean()
         if brier < best_brier:
             best_h, best_brier = h, brier
     return best_h
@@ -68,13 +73,13 @@ def choose_half_life(panel: pd.DataFrame, upto: int) -> int:
 def predict_year(panel: pd.DataFrame, T: int) -> pd.DataFrame:
     """Прогнозы всех моделей на год T+1 по данным до T включительно."""
     train = panel[panel.year <= T]
-    last = train[train.year == T].set_index("gw")["conflict25"]
+    last = train[train.year == T].set_index("gw")[TARGET]
     h = choose_half_life(panel, T)
     mem = decay_memory(train, h)
     decay = pd.Series(mem[train.year == T].to_numpy(), index=train.loc[train.year == T, "gw"].to_numpy())
     base = float(last.mean())
 
-    test = panel[panel.year == T + 1][["gw", "country", "year", "conflict25", "onset25"]].copy()
+    test = panel[panel.year == T + 1][["gw", "country", "year", TARGET, ONSET]].copy()
     test = test[test.gw.isin(last.index)]  # страны, которые существовали в году T
     test["at_risk"] = (test.gw.map(last) == 0).astype("int8")  # не было конфликта в T → кандидат на онсет
     test["last"] = test.gw.map(last).astype(float)
@@ -98,15 +103,15 @@ def evaluate(pred: pd.DataFrame) -> pd.DataFrame:
     """Метрики по годам проверки: строки — год, колонки — модель × метрика."""
     rows = []
     for year, g in pred.groupby("year"):
-        row = {"year": year, "n_countries": len(g), "n_conflict": int(g.conflict25.sum()),
-               "n_at_risk": int(g.at_risk.sum()), "n_onset": int(g.loc[g.at_risk == 1, "onset25"].sum()),
+        row = {"year": year, "n_countries": len(g), "n_conflict": int(g[TARGET].sum()),
+               "n_at_risk": int(g.at_risk.sum()), "n_onset": int(g.loc[g.at_risk == 1, ONSET].sum()),
                "decay_half_life": int(g.decay_half_life.iloc[0])}
         r = g[g.at_risk == 1]
         for m in MODELS:
-            row[f"{m}_brier"] = ((g[m] - g.conflict25) ** 2).mean()
-            row[f"{m}_auc"] = _auc(g.conflict25, g[m])
-            row[f"{m}_brier_onset"] = ((r[m] - r.onset25) ** 2).mean()
-            row[f"{m}_auc_onset"] = _auc(r.onset25, r[m])
+            row[f"{m}_brier"] = ((g[m] - g[TARGET]) ** 2).mean()
+            row[f"{m}_auc"] = _auc(g[TARGET], g[m])
+            row[f"{m}_brier_onset"] = ((r[m] - r[ONSET]) ** 2).mean()
+            row[f"{m}_auc_onset"] = _auc(r[ONSET], r[m])
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -119,18 +124,26 @@ def summarize(metrics: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out).T
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
+    global TARGET, ONSET
+    if argv:
+        if argv[0] not in ONSET_OF:
+            print(f"неизвестная целевая {argv[0]!r}; доступны: {', '.join(ONSET_OF)}")
+            return 2
+        TARGET, ONSET = argv[0], ONSET_OF[argv[0]]
+    suffix = "" if TARGET == "conflict25" else f"_{TARGET}"
+
     panel = load_panel()
     pred = predict_all(panel)
     metrics = evaluate(pred)
     summary = summarize(metrics)
 
     REPORTS.mkdir(exist_ok=True)
-    pred.to_parquet(DATA_PROCESSED / "baseline_predictions.parquet", index=False)
-    metrics.to_csv(REPORTS / "baseline_metrics_by_year.csv", index=False, float_format="%.4f")
-    summary.to_csv(REPORTS / "baseline_metrics_summary.csv", float_format="%.4f")
+    pred.to_parquet(DATA_PROCESSED / f"baseline_predictions{suffix}.parquet", index=False)
+    metrics.to_csv(REPORTS / f"baseline_metrics_by_year{suffix}.csv", index=False, float_format="%.4f")
+    summary.to_csv(REPORTS / f"baseline_metrics_summary{suffix}.csv", float_format="%.4f")
 
-    print(f"прогнозов: {len(pred)} строк, годы {pred.year.min()}–{pred.year.max()}")
+    print(f"целевая: {TARGET}; прогнозов: {len(pred)} строк, годы {pred.year.min()}–{pred.year.max()}")
     print("полураспад decay по годам:", metrics.decay_half_life.value_counts().to_dict())
     print("\nСреднее по годам проверки:")
     print(summary.round(4).to_string())
@@ -138,4 +151,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

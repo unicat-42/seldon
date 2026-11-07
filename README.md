@@ -21,7 +21,7 @@
 uv sync
 ```
 
-Скачать данные первого этапа (UCDP, PITF, conflictforecast) в `data/raw/`:
+Скачать данные первого этапа (UCDP, PITF, conflictforecast, списки государств и соседей) в `data/raw/`:
 
 ```bash
 uv run python -m seldon.download all
@@ -50,3 +50,5 @@ reports/         отчёты по сессиям
 | [UCDP](https://ucdp.uu.se) (Уппсала), версия 25.1 | события с погибшими (GED), конфликты по годам (UCDP/PRIO ACD), погибшие в боях (BRD) | целевая переменная по войнам |
 | [PITF](https://scip.gmu.edu/a-global-model-for-forecasting-political-instability/) (Goldstone и др., 2010) | replication data: таблица стран-лет и Stata-скрипт | повторение модели на 4 переменных |
 | [conflictforecast.org](https://conflictforecast.org) | ежемесячные прогнозы по странам и ячейкам | эталон для сравнения |
+| [Gleditsch & Ward](http://ksgleditsch.com/data-4.html) | список независимых государств с датами | «тихие» страны в панели |
+| [COW Direct Contiguity 3.2](https://correlatesofwar.org/data-sets/direct-contiguity/) | кто с кем граничит, по годам | целевая «сторона конфликта у соседа», признак «война у соседей» |

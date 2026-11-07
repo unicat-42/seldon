@@ -5,6 +5,7 @@
     uv run python -m seldon.download pitf
     uv run python -m seldon.download conflictforecast
     uv run python -m seldon.download gw
+    uv run python -m seldon.download cow
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -77,6 +78,15 @@ SOURCES: dict[str, dict] = {
     "gw": {
         "files": {"iisystem.dat": "http://ksgleditsch.com/data/iisystem.dat"},
         "unzip": False,
+    },
+    # Correlates of War — Direct Contiguity 3.2: кто с кем граничит (суша / море до N миль),
+    # по годам 1816–2016. Нужен для правила «помогает соседу» в целевой war25 (panel.py)
+    # и для признака «конфликт у соседей». Коды COW ≈ Gleditsch–Ward, расхождения — в panel.py.
+    "cow": {
+        "files": {
+            "DirectContiguity320.zip": "https://correlatesofwar.org/wp-content/uploads/DirectContiguity320.zip",
+        },
+        "unzip": True,
     },
 }
 
@@ -219,9 +229,10 @@ FETCHERS = {
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
     "gw": lambda: fetch_static("gw"),
+    "cow": lambda: fetch_static("cow"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow"]
 
 
 def main(argv: list[str]) -> int:
