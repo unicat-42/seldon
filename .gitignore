@@ -1,0 +1,17 @@
+# Данные в git не кладём — только код и скрипты загрузки
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Секреты (ключи API, если появятся)
+.env
+
+# macOS
+.DS_Store
