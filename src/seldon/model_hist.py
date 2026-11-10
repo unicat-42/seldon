@@ -5,6 +5,8 @@
     uv run python -m seldon.model_hist pitf         # история + режим/смертность/население (features_pitf.py)
     uv run python -m seldon.model_hist pitf gbm     # то же, но градиентный бустинг вместо логрегрессии
     uv run python -m seldon.model_hist pitf logit war1000   # третий аргумент — целевая (по умолчанию war25)
+    uv run python -m seldon.model_hist econ [logit|gbm] [war25|war1000]   # + экономика (features_econ.py)
+    uv run python -m seldon.model_hist histecon              # история + экономика, без PITF
 
 Признаки истории всегда считаются по war25 (features.py); целевая может быть другой —
 тогда имя прогноза получает суффикс `_<целевая>`, а для сравнения берётся `decay` из
@@ -44,6 +46,7 @@ from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, PROJECT_ROOT
 from seldon.features import FEATURES as HIST_FEATURES
+from seldon.features_econ import ECON_FEATURES
 from seldon.features_pitf import PITF_FEATURES
 
 REPORTS = PROJECT_ROOT / "reports"
@@ -53,6 +56,9 @@ TRAIN_YEARS = range(1995, 2024)
 FEATURE_SETS = {
     "hist": (HIST_FEATURES, "features_country_year.parquet"),
     "pitf": ([*HIST_FEATURES, *PITF_FEATURES], "features_pitf_country_year.parquet"),
+    # экономика (features_econ.py): GMD + давление на валюту из econ_kr
+    "econ": ([*HIST_FEATURES, *PITF_FEATURES, *ECON_FEATURES], "features_econ_country_year.parquet"),
+    "histecon": ([*HIST_FEATURES, *ECON_FEATURES], "features_econ_country_year.parquet"),
 }
 NAME = "hist"  # имя прогноза в файлах; переопределяется в main()
 FEATURE_SET = "hist"

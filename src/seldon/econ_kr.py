@@ -21,7 +21,8 @@
      курса от тренда, прошлая девальвация за 12 мес, инфляция, реальная ставка, разница
      ставок с США, спред кредит/депозит, рост M2/резервы за 12 мес, рост экспорта за 12 мес,
      плюс два «не из KLR»: доля стран мира с кризисом за последние 3 мес (заражение) и
-     максимум EMP самой страны за последние 3 мес (давление уже идёт).
+     максимум EMP самой страны за последние 3 мес (давление уже идёт); плюс война из блока
+     войн (UCDP по месяцам): конфликт ≥ 25 и ≥ 1000 сейчас, начало войны за 12 мес.
   4. Целевая: кризис в ближайшие 12 месяцев. 12 месяцев после кризиса из оценки выброшены.
   5. Модели вслепую по годам (учимся на метках, известных к 1 января года T,
      предсказываем все месяцы T):
@@ -86,7 +87,12 @@ INDICATORS = {
     "exports_g12": "low",    # экспорт упал за 12 мес
     "world_crisis3": "high", # заражение: доля стран мира с кризисом за последние 3 мес
     "emp_z_max3": "high",    # давление уже идёт: максимум EMP (в σ) за последние 3 мес
+    # война (UCDP, panel_country_month): связка блоков «война → кризис»
+    "war25_now": "high",     # конфликт ≥ 25 погибших в стране в этом месяце
+    "war1000_now": "high",   # война ≥ 1000 погибших за год — в этом месяце
+    "war_onset12": "high",   # начало войны (онсет war25) за последние 12 мес
 }
+BINARY = {"war25_now", "war1000_now", "war_onset12"}  # сигнал = 1, без порога-процентиля
 
 MMRT = "MMRT_RT_PT_A_PT"
 RATE_PRIORITY = ["MMRT_RT_PT_A_PT", "IRTBILL_RT_PT_A_PT", "MFS166_RT_PT_A_PT",
@@ -273,7 +279,22 @@ def add_indicators(p: pd.DataFrame) -> pd.DataFrame:
     share = (world.k / world.n).rolling(3, min_periods=1).sum()
     p["world_crisis3"] = p.month.map(share)
     p["emp_z_max3"] = gb.emp_z.transform(lambda s: s.rolling(3, min_periods=1).max()).clip(-5, 50)
-    return p
+    return add_war(p)
+
+
+def add_war(p: pd.DataFrame) -> pd.DataFrame:
+    """Война по месяцам из блока войн (panel.py → panel_country_month.parquet, коды GW)."""
+    from seldon.countries import GW_TO_ISO3
+    w = pd.read_parquet(DATA_PROCESSED / "panel_country_month.parquet",
+                        columns=["gw", "year", "month", "war25", "war1000", "onset_war25"])
+    w["iso3"] = w.gw.map(GW_TO_ISO3)
+    w = w[w.iso3.notna()].copy()
+    w["month"] = pd.PeriodIndex(pd.to_datetime(dict(year=w.year, month=w.month, day=1)), freq="M")
+    w = w.sort_values(["iso3", "month"])
+    w["war_onset12"] = w.groupby("iso3").onset_war25.transform(lambda s: s.rolling(12, min_periods=1).max())
+    w = w.drop_duplicates(["iso3", "month"])  # 340/345 → SRB
+    w = w.rename(columns={"war25": "war25_now", "war1000": "war1000_now"})
+    return p.merge(w[["iso3", "month", "war25_now", "war1000_now", "war_onset12"]], on=["iso3", "month"], how="left")
 
 
 def add_target(p: pd.DataFrame, target: str = "crisis") -> pd.DataFrame:
@@ -325,6 +346,8 @@ def _thresholds(ref: pd.DataFrame, ind: str, pct: int, side: str) -> pd.Series:
 
 
 def _signal(df: pd.DataFrame, ind: str, side: str, pct: int, ref: pd.DataFrame) -> pd.Series:
+    if ind in BINARY:
+        return (df[ind] >= 1).astype(float).where(df[ind].notna())
     thr, pooled = _thresholds(ref, ind, pct, side)
     t = df.iso3.map(thr).fillna(pooled)
     x = df[ind]
