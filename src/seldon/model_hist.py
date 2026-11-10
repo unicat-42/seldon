@@ -7,6 +7,7 @@
     uv run python -m seldon.model_hist pitf logit war1000   # третий аргумент — целевая (по умолчанию war25)
     uv run python -m seldon.model_hist econ [logit|gbm] [war25|war1000]   # + экономика (features_econ.py)
     uv run python -m seldon.model_hist histecon              # история + экономика, без PITF
+    uv run python -m seldon.model_hist polit [logit|gbm] [war25|war1000]  # + политика (features_polit.py)
 
 Признаки истории всегда считаются по war25 (features.py); целевая может быть другой —
 тогда имя прогноза получает суффикс `_<целевая>`, а для сравнения берётся `decay` из
@@ -48,6 +49,7 @@ from seldon import DATA_PROCESSED, PROJECT_ROOT
 from seldon.features import FEATURES as HIST_FEATURES
 from seldon.features_econ import ECON_FEATURES
 from seldon.features_pitf import PITF_FEATURES
+from seldon.features_polit import POLIT_FEATURES
 
 REPORTS = PROJECT_ROOT / "reports"
 TARGET, ONSET = "war25", "onset_war25"
@@ -59,6 +61,8 @@ FEATURE_SETS = {
     # экономика (features_econ.py): GMD + давление на валюту из econ_kr
     "econ": ([*HIST_FEATURES, *PITF_FEATURES, *ECON_FEATURES], "features_econ_country_year.parquet"),
     "histecon": ([*HIST_FEATURES, *ECON_FEATURES], "features_econ_country_year.parquet"),
+    # политика (features_polit.py): лидеры, выборы, перевороты (REIGN), протесты (Mass Mobilization)
+    "polit": ([*HIST_FEATURES, *PITF_FEATURES, *POLIT_FEATURES], "features_polit_country_year.parquet"),
 }
 NAME = "hist"  # имя прогноза в файлах; переопределяется в main()
 FEATURE_SET = "hist"

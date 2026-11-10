@@ -13,6 +13,8 @@
     uv run python -m seldon.download gmd
     uv run python -m seldon.download imf
     uv run python -m seldon.download bis
+    uv run python -m seldon.download reign
+    uv run python -m seldon.download massmob
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -150,6 +152,19 @@ SOURCES: dict[str, dict] = {
             "varlist.csv": "https://raw.githubusercontent.com/KMueller-Lab/Global-Macro-Database/refs/heads/main/data/helpers/varlist.csv",
             f"GMD_{GMD_VERSION}.dta": f"https://gmd-releases.s3.ap-southeast-2.amazonaws.com/data/distribute/GMD_{GMD_VERSION}.dta",
         },
+        "unzip": False,
+    },
+    # REIGN (Rulers, Elections, and Irregular Governance; One Earth Future) — лидеры, выборы,
+    # перевороты (вкл. Powell–Thyne) по странам и месяцам, 1950–2021. Проект закрыт в 2021,
+    # последний файл лежит на GitHub. Коды стран — COW (≈ Gleditsch–Ward).
+    "reign": {
+        "files": {"REIGN_2021_8.csv": "https://raw.githubusercontent.com/OEFDataScience/REIGN.github.io/gh-pages/data_sets/REIGN_2021_8.csv"},
+        "unzip": False,
+    },
+    # Mass Mobilization (Clark & Regan) — антиправительственные протесты по событиям,
+    # 1990–2020, Harvard Dataverse (открытый файл, без логина). Коды стран — COW.
+    "massmob": {
+        "files": {"mmALL_073120_csv.tab": "https://dataverse.harvard.edu/api/access/datafile/4291456?format=original"},
         "unzip": False,
     },
     # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
@@ -405,9 +420,11 @@ FETCHERS = {
     "gmd": lambda: fetch_static("gmd"),
     "imf": fetch_imf,
     "bis": lambda: fetch_static("bis"),
+    "reign": lambda: fetch_static("reign"),
+    "massmob": lambda: fetch_static("massmob"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob"]
 
 
 def main(argv: list[str]) -> int:
