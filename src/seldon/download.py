@@ -11,6 +11,7 @@
     uv run python -m seldon.download jst
     uv run python -m seldon.download boe
     uv run python -m seldon.download gmd
+    uv run python -m seldon.download imf
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -147,6 +148,37 @@ SOURCES: dict[str, dict] = {
         },
         "unzip": False,
     },
+    # МВФ — новый портал данных (data.imf.org, SDMX 3.0 API, без ключа; старый IFS-сервис
+    # dataservices.imf.org закрыт в 2025). Бывший IFS разложен по наборам: ER — курсы,
+    # IL — резервы, MFS_IR — ставки, CPI — цены. Месячные ряды по всем странам для модели
+    # валютных кризисов Kaminsky–Reinhart. Фильтры — через параметры c[...]: ключ после
+    # первого измерения этот API игнорирует (проверено 10.11.2026).
+    "imf": {
+        "api": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/{flow}/+/*",
+        "flows": {
+            # имя файла: (dataflow, фильтры)
+            "exchange_rates": ("ER", {"INDICATOR": "XDC_USD", "FREQUENCY": "M"}),
+            "reserves": ("IL", {"INDICATOR": "RXF11_REVS,TRGMV_REVS", "UNIT": "USD", "FREQUENCY": "M"}),
+            "interest_rates": ("MFS_IR", {
+                "INDICATOR": ",".join([
+                    "MMRT_RT_PT_A_PT",     # ставка денежного рынка — главная у KR
+                    "DISR_RT_PT_A_PT",     # учётная ставка ЦБ
+                    "MFS166_RT_PT_A_PT",   # ключевая (monetary policy-related)
+                    "MFS171_RT_PT_A_PT",   # ставка рефинансирования
+                    "IRTBILL_RT_PT_A_PT",  # казначейские векселя
+                    "MFS135_RT_PT_A_PT",   # депозитная
+                    "MFS162_RT_PT_A_PT",   # кредитная
+                ]),
+                "FREQUENCY": "M",
+            }),
+            "cpi": ("CPI", {"INDEX_TYPE": "CPI", "COICOP_1999": "_T",
+                            "TYPE_OF_TRANSFORMATION": "IX", "FREQUENCY": "M"}),
+            # широкая денежная масса в нацвалюте (для M2/резервы) и экспорт товаров FOB в долл.
+            "broad_money": ("MFS_MA", {"INDICATOR": "BM_MAI", "UNIT": "XDC", "FREQUENCY": "M"}),
+            "exports": ("ITG", {"INDICATOR": "XG", "TYPE_OF_TRANSFORMATION": "FOB_USD", "FREQUENCY": "M"}),
+        },
+        "accept": "application/vnd.sdmx.data+csv;version=2.0.0",
+    },
 }
 
 HEADERS = {"User-Agent": "seldon-research/0.1 (personal research project)"}
@@ -280,6 +312,38 @@ def fetch_wdi() -> None:
     write_manifest(folder, entries)
 
 
+def fetch_imf() -> None:
+    """МВФ: каждый набор — в CSV формата SDMX-CSV 2.0 (COUNTRY, INDICATOR, ..., TIME_PERIOD,
+    OBS_VALUE). Все страны, месячная частота. Фильтр по индикаторам — в параметрах запроса."""
+    spec = SOURCES["imf"]
+    folder = DATA_RAW / "imf"
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"[imf] → {folder}")
+    entries = []
+    for name, (flow, filters) in spec["flows"].items():
+        dest = folder / f"{name}.csv"
+        params = {f"c[{k}]": v for k, v in filters.items()}
+        url = requests.Request("GET", spec["api"].format(flow=flow), params=params).prepare().url
+        if dest.exists() and dest.stat().st_size > 0:
+            print(f"  есть, пропускаю: {dest.name}")
+            entries.append({"url": url, "file": dest.name, "bytes": dest.stat().st_size, "skipped": True})
+            continue
+        tmp = dest.with_suffix(".part")
+        with requests.get(url, headers={**HEADERS, "Accept": spec["accept"]}, stream=True, timeout=600) as r:
+            r.raise_for_status()
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1 << 16):
+                    f.write(chunk)
+        tmp.rename(dest)
+        n_rows = sum(1 for _ in open(dest)) - 1
+        print(f"  скачано: {dest.name} ({n_rows} строк, {dest.stat().st_size / 1e6:.1f} МБ)")
+        entries.append({
+            "url": url, "file": dest.name, "bytes": dest.stat().st_size,
+            "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
+    write_manifest(folder, entries)
+
+
 def fetch_acled() -> None:
     """ACLED — события насилия и протестов. Нужна регистрация на acleddata.com.
 
@@ -328,9 +392,10 @@ FETCHERS = {
     "jst": lambda: fetch_static("jst"),
     "boe": lambda: fetch_static("boe"),
     "gmd": lambda: fetch_static("gmd"),
+    "imf": fetch_imf,
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf"]
 
 
 def main(argv: list[str]) -> int:
