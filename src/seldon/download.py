@@ -112,6 +112,9 @@ SOURCES: dict[str, dict] = {
             # замена JST tloans/gdp для стран вне JST; резервы в долларах
             "FD.AST.PRVT.GD.ZS": "credit_gdp",
             "FI.RES.TOTL.CD": "reserves_usd",
+            # годовой ИПЦ (2010 = 100) — затыкать дыры в месячном ИПЦ МВФ (econ_kr.py):
+            # у Украины, Беларуси, Казахстана месячный ИПЦ у МВФ только с 2005
+            "FP.CPI.TOTL": "cpi_annual",
         },
         "api": "https://api.worldbank.org/v2/country/all/indicator/{ind}?format=json&per_page=20000&date=1960:2025",
     },

@@ -5,7 +5,9 @@
 
 Что делает:
   1. Месячная панель страна×месяц по всем странам из данных МВФ (`download imf`): курс
-     к доллару (конец месяца), резервы без золота (долл.), ставки, ИПЦ.
+     к доллару (конец месяца), резервы без золота (долл.), ставки, ИПЦ. Дыры в месячном
+     ИПЦ затыкаем годовым ИПЦ ВБ (`download wdi`) экстраполяцией из последнего
+     завершённого года — без утечки (см. `fill_cpi`).
   2. Индекс давления на валютный рынок (EMP — exchange market pressure):
          EMP = %Δe − (σ_e / σ_R) · %ΔR,
      где e — курс (рост = ослабление), R — резервы, σ — стандартные отклонения по стране.
@@ -141,6 +143,38 @@ def load_panel() -> pd.DataFrame:
         p.loc[p[c] <= 0, c] = np.nan
     p["post_soviet"] = p.iso3.isin(POST_SOVIET_ISO3)
     return p.sort_values(["iso3", "month"]).reset_index(drop=True)
+
+
+def fill_cpi(p: pd.DataFrame) -> pd.DataFrame:
+    """Дыры в месячном ИПЦ МВФ затыкаем годовым ИПЦ Всемирного банка — без утечки будущего.
+
+    Интерполировать между годовыми средними нельзя: среднее за год известно только
+    в конце года, и инфляция после девальвации «просочилась» бы в признаки до кризиса.
+    Поэтому для месяца m года t берём экстраполяцию из последнего завершённого года:
+        cpi(m) = A(t−1) · (A(t−1)/A(t−2))^((m + 5,5)/12),
+    где A(y) — годовое среднее (относим к середине года). Это честный прогноз на момент m.
+    Уровень подгоняем к первому месячному наблюдению МВФ, чтобы на стыке не было скачка.
+    Флаг `cpi_filled` отмечает заполненные месяцы."""
+    p = p.copy()
+    a = pd.read_csv(DATA_RAW / "wdi" / "cpi_annual.csv")[["iso3", "year", "value"]]
+    a = a[a.value > 0].sort_values(["iso3", "year"])
+    a["prev"] = a.groupby("iso3").value.shift(1)
+    a["prev_year"] = a.groupby("iso3").year.shift(1)
+    a = a[a.prev_year == a.year - 1]  # нужны два подряд идущих года
+    a["g"] = (a.value / a.prev) ** (1 / 12)  # месячный темп последнего завершённого года
+    a = a.rename(columns={"value": "A"})[["iso3", "year", "A", "g"]]
+    a["year"] = a.year + 1  # применяем к следующему году
+    p["year"] = p.month.dt.year
+    p = p.merge(a, on=["iso3", "year"], how="left")
+    m = p.month.dt.month
+    fill = p.A * p.g ** ((m + 5.5) / 12)
+    # подгонка уровня: отношение месячного ИПЦ МВФ к заполнению в первом месяце, где есть оба
+    both = p[p.cpi.notna() & fill.notna()]
+    factor = (both.cpi / fill[both.index]).groupby(both.iso3).first()
+    fill = fill * p.iso3.map(factor).fillna(1.0)
+    p["cpi_filled"] = p.cpi.isna() & fill.notna()
+    p["cpi"] = p.cpi.fillna(fill)
+    return p.drop(columns=["year", "A", "g"])
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +455,7 @@ def coverage(p: pd.DataFrame) -> pd.DataFrame:
             s = g[g[c].notna()]
             r[f"{c}_from"] = str(s.month.min()) if len(s) else ""
             r[f"{c}_to"] = str(s.month.max()) if len(s) else ""
+        r["cpi_filled_months"] = int(g.cpi_filled.sum())
         r["n_crises"] = int(g.crisis.sum())
         r["n_deval15"] = int(g.deval15.sum())
         rows.append(r)
@@ -432,6 +467,7 @@ def main(argv: list[str]) -> int:
     suffix = "" if target == "crisis" else f"_{target}"
     print("Панель МВФ…")
     p = load_panel()
+    p = fill_cpi(p)
     p = add_emp_and_crises(p)
     p = add_indicators(p)
     p = add_target(p, target)
@@ -444,7 +480,7 @@ def main(argv: list[str]) -> int:
     cov = coverage(p)
     cov.to_csv(REPORTS / "econ_kr_coverage.csv", index=False)
     print("\nПокрытие постсоветских стран:")
-    print(cov[["country", "fx_from", "reserves_from", "cpi_from", "rate_from", "n_crises", "n_deval15"]].to_string(index=False))
+    print(cov[["country", "fx_from", "reserves_from", "cpi_from", "cpi_filled_months", "rate_from", "n_crises", "n_deval15"]].to_string(index=False))
 
     cr = p[(p.crisis == 1) & p.post_soviet][["iso3", "month", "de", "dr", "emp_z"]].copy()
     cr["country"] = cr.iso3.map(ISO3_TO_SHORT)
