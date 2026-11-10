@@ -1,7 +1,7 @@
 """Валютные кризисы на длинной истории: GMD 1870–2024, все страны, по годам.
 
 Запуск:
-    uv run python -m seldon.econ_long [deval25|gmd_cc]
+    uv run python -m seldon.econ_long [deval25|gmd_cc|lv_cc]
 
 Идея: за 1996–2024 девальваций ≥ 25 % около 110, за 1870–2024 — около 630. Модель на
 150 годах видит сотни эпизодов вместо десятков (так сработала модель BoE на JST). Проверка
@@ -12,7 +12,8 @@
     deval25  — курс к доллару (среднегодовой) вырос ≥ 25 % за год после ≥ 2 спокойных лет
                (как в econ_panel); годы с инфляцией > 100 % в прошлом году не оцениваем
                (гиперинфляция: девальвация там — не событие, а фон);
-    gmd_cc   — валютный кризис по хронике GMD (Reinhart–Rogoff, Laeven–Valencia; до 2017).
+    gmd_cc   — валютный кризис по хронике GMD (Reinhart–Rogoff, Laeven–Valencia; до 2017);
+    lv_cc    — валютный кризис по Laeven–Valencia 2018 напрямую (lv.py; 1970–2017).
 Метка: y(t) = 1, если кризис в t+1 или t+2 (как у BoE). Год кризиса и 2 после — не оцениваем.
 
 Признаки (год t, всё с лагом — известно к концу t):
@@ -97,6 +98,9 @@ def add_features(p: pd.DataFrame) -> pd.DataFrame:
     p["deval25"] = ((p.big == 1) & (prev == 0)).astype(int)
     p.loc[p.deval.isna(), "deval25"] = np.nan
     p["gmd_cc"] = p.CurrencyCrisis
+    lv = pd.read_parquet(DATA_PROCESSED / "lv_country_year.parquet")[["iso3", "year", "lv_currency"]]
+    p = p.merge(lv, on=["iso3", "year"], how="left").rename(columns={"lv_currency": "lv_cc"})
+    gb = p.groupby("iso3")
     p["hyper_prev"] = gb.infl.shift(1) > HYPER
 
     p["infl_log"] = np.log1p(p.infl.clip(lower=-50, upper=10_000) / 100.0)

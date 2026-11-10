@@ -1,7 +1,8 @@
 """Модель Банка Англии (Bluwstein и др.) на развивающихся странах: GMD + кредит BIS.
 
 Запуск:
-    uv run python -m seldon.econ_boe_em
+    uv run python -m seldon.econ_boe_em        # метка — хроника GMD
+    uv run python -m seldon.econ_boe_em lv     # метка — Laeven–Valencia 2018 (lv.py), оценка до 2015
 
 Вопрос: держится ли модель BoE по банковским кризисам (AUC 0,65 при переносе на GMD в
 `econ_panel.py`) на выборке побольше — 44 страны BIS, из них ~20 развивающихся (Россия,
@@ -55,7 +56,12 @@ from seldon.econ_boe import JST_R6, PREDICTORS, build_boe_dataset, load_jst
 REPORTS = PROJECT_ROOT / "reports"
 LAST_YEAR = 2024
 FIRST_EVAL_YEAR = 1990
-EVAL_YEARS = range(FIRST_EVAL_YEAR, LAST_YEAR - 1)  # метки для T нужны до T+2
+LABEL = "gmd"  # или "lv": хроника Laeven–Valencia 2018 (lv.py), 1970–2017, где есть; иначе GMD
+LAST_LABEL_YEAR = {"gmd": 2024, "lv": 2017}
+
+
+def eval_years() -> range:
+    return range(FIRST_EVAL_YEAR, LAST_LABEL_YEAR[LABEL] - 1)  # метки для T нужны до T+2
 MIN_CRISIS_TRAIN = 10
 
 # BIS: ISO2 заёмщика → ISO3; агрегаты (4T, 5A, 5R, G2, XM) пропускаем
@@ -112,6 +118,11 @@ def load_panel() -> pd.DataFrame:
     g = g.rename(columns={"ISO3": "iso3"})
     g = g[g.iso3.isin(set(BIS_ISO.values()))]
     g = g.merge(load_bis_credit(), on=["iso3", "year"], how="left")
+    crisis = g.BankingCrisis
+    if LABEL == "lv":
+        lv = pd.read_parquet(DATA_PROCESSED / "lv_country_year.parquet")[["iso3", "year", "lv_banking"]]
+        g = g.merge(lv, on=["iso3", "year"], how="left")
+        crisis = g.lv_banking.where(g.lv_banking.notna(), g.BankingCrisis)
     j = pd.DataFrame({
         "iso": g.iso3, "year": g.year, "country": g.countryname,
         "gdp": g.nGDP,
@@ -124,7 +135,7 @@ def load_panel() -> pd.DataFrame:
         "iy": g.inv_GDP / 100.0,
         "debtgdp": g.govdebt_GDP / 100.0,
         "ca": g.CA_GDP / 100.0 * g.nGDP,
-        "crisisJST": g.BankingCrisis,
+        "crisisJST": crisis,
         "credit_src": g.credit_src,
     })
     # build_boe_dataset ждёт и эти колонки (не используются в наших наборах признаков)
@@ -163,7 +174,7 @@ def run(panel: pd.DataFrame, jst: pd.DataFrame, feats: list[str], tag: str
     coefs.append(pd.Series(jst_models["logreg"][-1].coef_[0], index=feats, name=f"{tag}_jst_logreg"))
     lo, hi = jst_d[feats].min(), jst_d[feats].max()
     own_coefs = []
-    for T in EVAL_YEARS:
+    for T in eval_years():
         test = data[data.year == T].copy()
         if test.empty:
             continue
@@ -263,10 +274,14 @@ def coverage(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
+    global LABEL
+    if argv:
+        LABEL = argv[0]
+    sfx = "" if LABEL == "gmd" else f"_{LABEL}"
     panel = load_panel()
-    panel.to_parquet(DATA_PROCESSED / "boe_em_panel.parquet", index=False)
+    panel.to_parquet(DATA_PROCESSED / f"boe_em_panel{sfx}.parquet", index=False)
     cov = coverage(panel)
-    cov.to_csv(REPORTS / "boe_em_coverage.csv", index=False)
+    cov.to_csv(REPORTS / f"boe_em_coverage{sfx}.csv", index=False)
     print("Покрытие развивающихся стран (GMD + BIS):\n", cov.to_string(index=False))
 
     jst = load_jst(JST_R6, "Sheet1")
@@ -280,19 +295,19 @@ def main(argv: list[str]) -> int:
         preds.append(p)
         coefs.append(c)
     pred = pd.concat(preds, ignore_index=True)
-    pred.to_parquet(DATA_PROCESSED / "boe_em_predictions.parquet", index=False)
-    pd.concat(coefs, axis=1).round(3).to_csv(REPORTS / "boe_em_coefficients.csv")
+    pred.to_parquet(DATA_PROCESSED / f"boe_em_predictions{sfx}.parquet", index=False)
+    pd.concat(coefs, axis=1).round(3).to_csv(REPORTS / f"boe_em_coefficients{sfx}.csv")
 
     met = metrics(pred)
-    met.to_csv(REPORTS / "boe_em_metrics.csv", index=False)
-    print(f"\nМетрики вслепую {FIRST_EVAL_YEAR}–{LAST_YEAR - 2}, целевая: банковский кризис в t+1 или t+2:")
+    met.to_csv(REPORTS / f"boe_em_metrics{sfx}.csv", index=False)
+    print(f"\nМетрики вслепую {FIRST_EVAL_YEAR}–{LAST_LABEL_YEAR[LABEL] - 2}, метка {LABEL}, целевая: банковский кризис в t+1 или t+2:")
     print(met.round(3).to_string(index=False))
-    metrics_by_year(pred).to_csv(REPORTS / "boe_em_metrics_by_year.csv", index=False)
+    metrics_by_year(pred).to_csv(REPORTS / f"boe_em_metrics_by_year{sfx}.csv", index=False)
 
     cr = panel[(panel.crisisJST == 1) & panel.em][["iso", "country", "year"]]
-    cr.to_csv(REPORTS / "boe_em_crises.csv", index=False)
+    cr.to_csv(REPORTS / f"boe_em_crises{sfx}.csv", index=False)
     tab = pre_crisis_table(panel, pred)
-    tab.to_csv(REPORTS / "boe_em_pre_crisis_table.csv", index=False)
+    tab.to_csv(REPORTS / f"boe_em_pre_crisis_table{sfx}.csv", index=False)
     show = ["country", "crisis_year", "feature_set", "n_countries", "jst_logreg_rank", "jst_extree_rank",
             "own_logreg_rank", "own_extree_rank", "pooled_extree_rank"]
     print("\nКризисы развивающихся стран: место среди стран за год до (1 = самый рискованный):")
