@@ -16,6 +16,7 @@
     uv run python -m seldon.download reign
     uv run python -m seldon.download massmob
     uv run python -m seldon.download lenta
+    uv run python -m seldon.download cbr
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -175,6 +176,16 @@ SOURCES: dict[str, dict] = {
         "files": {"lenta-ru-news.csv.bz2": "https://github.com/yutkin/Lenta.Ru-News-Dataset/releases/download/v1.1/lenta-ru-news.csv.bz2"},
         "unzip": False,
     },
+    # ЦБ РФ — вклады физических лиц по валютам: помесячно с 2012 (xlsx) и по годам 2007–2018
+    # (HTML-таблицы «Данные об объемах привлеченных кредитными организациями вкладов»).
+    # Долларизация вкладов населения — поведенческий слой (behavior_ru.py). Без ключа.
+    "cbr": {
+        "files": {
+            "funds_all.xlsx": "https://www.cbr.ru/vfs/statistics/BankSector/Borrowings/02_01_Funds_all.xlsx",
+            **{f"deposits_20{y:02d}.html": f"https://www.cbr.ru/statistics/bank_system/4-2-1a_{y:02d}/" for y in range(7, 19)},
+        },
+        "unzip": False,
+    },
     # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
     # развивающиеся (Россия, Турция, Бразилия, Китай...), поквартально с 1940–1990-х, % ВВП.
     # Длиннее рядов ВБ на 10–20 лет у развитых и с поправками на разрывы. Открытый bulk-архив.
@@ -210,6 +221,10 @@ SOURCES: dict[str, dict] = {
             # широкая денежная масса в нацвалюте (для M2/резервы) и экспорт товаров FOB в долл.
             "broad_money": ("MFS_MA", {"INDICATOR": "BM_MAI", "UNIT": "XDC", "FREQUENCY": "M"}),
             "exports": ("ITG", {"INDICATOR": "XG", "TYPE_OF_TRANSFORMATION": "FOB_USD", "FREQUENCY": "M"}),
+            # платёжный баланс, поквартально: «наличная валюта и депозиты» прочих секторов
+            # (домохозяйства + нефинансовые компании) — покупка валюты и вывод на счета за рубеж.
+            # Поведенческий слой: бегство в валюту (behavior_ru.py).
+            "bop_cash_deposits": ("BOP", {"INDICATOR": "O_F2_S1V,O_F2_S1Z", "FREQUENCY": "Q"}),
         },
         "accept": "application/vnd.sdmx.data+csv;version=2.0.0",
     },
@@ -431,9 +446,10 @@ FETCHERS = {
     "reign": lambda: fetch_static("reign"),
     "massmob": lambda: fetch_static("massmob"),
     "lenta": lambda: fetch_static("lenta"),
+    "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr"]
 
 
 def main(argv: list[str]) -> int:
