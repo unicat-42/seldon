@@ -1,0 +1,12 @@
+,full_jst_logreg,full_own_logreg_mean,core_jst_logreg,core_own_logreg_mean
+cpi_pdiff2,-0.382,-0.212,-0.249,0.325
+bmon_gdp_rdiff2,-0.128,0.267,-0.135,0.024
+cons_pdiff2,-0.325,-0.209,-0.356,-0.036
+pdebt_gdp_rdiff2,-0.055,-0.103,-0.109,0.194
+inv_gdp_rdiff2,0.244,0.332,0.291,0.164
+ca_gdp_rdiff2,0.042,0.204,0.022,0.131
+tloan_gdp_rdiff2,0.441,0.672,0.563,0.863
+tdbtserv_gdp_rdiff2,0.403,0.618,,
+global_loan2,0.698,0.461,0.568,0.542
+drate,-0.789,-0.013,,
+global_drate,-0.503,-0.39,,

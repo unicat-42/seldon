@@ -12,6 +12,7 @@
     uv run python -m seldon.download boe
     uv run python -m seldon.download gmd
     uv run python -m seldon.download imf
+    uv run python -m seldon.download bis
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -150,6 +151,13 @@ SOURCES: dict[str, dict] = {
             f"GMD_{GMD_VERSION}.dta": f"https://gmd-releases.s3.ap-southeast-2.amazonaws.com/data/distribute/GMD_{GMD_VERSION}.dta",
         },
         "unzip": False,
+    },
+    # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
+    # развивающиеся (Россия, Турция, Бразилия, Китай...), поквартально с 1940–1990-х, % ВВП.
+    # Длиннее рядов ВБ на 10–20 лет у развитых и с поправками на разрывы. Открытый bulk-архив.
+    "bis": {
+        "files": {"WS_TC_csv_flat.zip": "https://data.bis.org/static/bulk/WS_TC_csv_flat.zip"},
+        "unzip": True,
     },
     # МВФ — новый портал данных (data.imf.org, SDMX 3.0 API, без ключа; старый IFS-сервис
     # dataservices.imf.org закрыт в 2025). Бывший IFS разложен по наборам: ER — курсы,
@@ -396,9 +404,10 @@ FETCHERS = {
     "boe": lambda: fetch_static("boe"),
     "gmd": lambda: fetch_static("gmd"),
     "imf": fetch_imf,
+    "bis": lambda: fetch_static("bis"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis"]
 
 
 def main(argv: list[str]) -> int:
