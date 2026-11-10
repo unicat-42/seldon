@@ -15,6 +15,7 @@
     uv run python -m seldon.download bis
     uv run python -m seldon.download reign
     uv run python -m seldon.download massmob
+    uv run python -m seldon.download lenta
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -165,6 +166,13 @@ SOURCES: dict[str, dict] = {
     # 1990–2020, Harvard Dataverse (открытый файл, без логина). Коды стран — COW.
     "massmob": {
         "files": {"mmALL_073120_csv.tab": "https://dataverse.harvard.edu/api/access/datafile/4291456?format=original"},
+        "unzip": False,
+    },
+    # Lenta.ru — открытый корпус новостей 1999-09…2019-12 (~800 тыс. статей; Yutkin, GitHub).
+    # Поведенческий слой: о чём писали газеты за месяцы до валютных кризисов в России.
+    # Тексты в git не кладём и не воспроизводим — только месячные частоты словарей.
+    "lenta": {
+        "files": {"lenta-ru-news.csv.bz2": "https://github.com/yutkin/Lenta.Ru-News-Dataset/releases/download/v1.1/lenta-ru-news.csv.bz2"},
         "unzip": False,
     },
     # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
@@ -422,9 +430,10 @@ FETCHERS = {
     "bis": lambda: fetch_static("bis"),
     "reign": lambda: fetch_static("reign"),
     "massmob": lambda: fetch_static("massmob"),
+    "lenta": lambda: fetch_static("lenta"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta"]
 
 
 def main(argv: list[str]) -> int:
