@@ -19,6 +19,10 @@
    (годовые макроданные за текущий год, список сторон войны за текущий год), — прогноз
    обязан совпасть. Контроль: без лага та же порча прогноз меняет.
 
+5. Структурный валютный блок (чекпоинт 3.3): те же две проверки (слепота к будущему и лаги
+   публикации) для таблицы признаков `struct_features` и обоих контуров `econ_struct`;
+   конец хроники IRR; привязка к евро; вариант весов условий торговли.
+
 Глобальные константы модулей тесты не трогают: всё передаётся аргументами.
 """
 
@@ -33,7 +37,10 @@ from seldon.domains.banking import econ_boe, econ_boe_em
 from seldon.domains.conflict import dyads, features, features_epr, features_pitf, features_vdem, model_dyad, model_hist, panel
 from seldon.sources import epr as epr_source
 from seldon.sources import vdem as vdem_source
-from seldon.domains.currency import econ_kr, econ_long, kr_features, kr_targets, long_features
+from seldon.domains.currency import econ_kr, econ_long, econ_struct, kr_features, kr_targets, long_features, struct_features
+from seldon.domains.currency.struct_features import StructLags
+from seldon.sources import imf as imf_source
+from seldon.sources import irr as irr_source
 
 ATOL = 1e-12
 
@@ -674,6 +681,227 @@ def test_dyad_war_is_part_of_state_war():
                         "gwno_b_2nd": ["11"], "incompatibility": [2]})
     dw = dyads.dyad_wars(ged, dyads.opponents(acd), s["neighbors"])
     assert set(zip(dw.a, dw.b)) == {(10, 1), (10, 11), (11, 10)}
+
+
+# ---------------------------------------------------------------------------
+# 5. Структурный валютный блок (чекпоинт 3.3)
+# ---------------------------------------------------------------------------
+
+STRUCT_NO_LAG = StructLags(reer_months=0, ctot_months=0, wdi_source=None, irr_source=None)
+STRUCT_IRR_LAST = 2014  # в синтетике хроника IRR «кончается» здесь, если не сказано иное
+
+
+def synth_fx_struct(countries: list[str], months: pd.PeriodIndex, seed: int = 11, fx: pd.DataFrame | None = None) -> dict:
+    """Входы `struct_features.build_struct`: курс, евро-якорь, REER/NEER, условия торговли,
+    режим IRR и резервы ВБ — случайные ряды."""
+    rng = np.random.default_rng(seed)
+    n = len(months)
+    years = range(int(months.year.min()) - 1, int(months.year.max()) + 1)
+    walk = lambda scale, drift=0.0: np.exp(np.cumsum(rng.normal(drift, scale, n)))  # noqa: E731
+    if fx is None:
+        fx = pd.concat([pd.DataFrame({"iso3": c, "month": months, "fx": 10 * walk(0.02, 0.002)}) for c in countries], ignore_index=True)
+    reer = pd.concat([pd.DataFrame({"iso3": c, "month": months, "reer120": 100 * walk(0.02), "reer51": 100 * walk(0.02),
+                                    "neer120": 100 * walk(0.02), "neer51": 100 * walk(0.02)}) for c in countries], ignore_index=True)
+    ctot = pd.concat([pd.DataFrame({"iso3": c, "month": months, "ctot": 100 * walk(0.01)}) for c in countries], ignore_index=True)
+    return {
+        "fx": fx[["iso3", "month", "fx"]], "eur": pd.DataFrame({"month": months, "eur_usd": walk(0.02)}), "reer": reer, "ctot": ctot,
+        "irr": pd.DataFrame([(c, y, int(rng.integers(1, 15))) for c in countries for y in years], columns=["iso3", "year", "irr_fine"]),
+        "buffers": pd.DataFrame([(c, y, float(rng.uniform(5, 300)), float(rng.uniform(0.5, 12))) for c in countries for y in years],
+                                columns=["iso3", "year", "std_res", "res_months"]),
+    }
+
+
+def _struct(s: dict, lags: StructLags = StructLags(), irr_last_year: int = STRUCT_IRR_LAST) -> pd.DataFrame:
+    return struct_features.build_struct(s["fx"], s["eur"], s["reer"], s["ctot"], s["irr"], s["buffers"], lags, irr_last_year)
+
+
+def _corrupt_struct(s: dict, fx_after=None, eur_after=None, reer_after=None, neer_after=None, ctot_after=None,
+                    wdi_from=None, irr_from=None) -> dict:
+    """Испортить входы: месячные — строго после указанного месяца, годовые — начиная с года."""
+    out = dict(s)
+    if fx_after is not None:
+        out["fx"] = _corrupt(s["fx"], s["fx"].month > fx_after, ["fx"], seed=21)
+    if eur_after is not None:
+        out["eur"] = _corrupt(s["eur"], s["eur"].month > eur_after, ["eur_usd"], seed=22)
+    reer = s["reer"]
+    if reer_after is not None:
+        reer = _corrupt(reer, reer.month > reer_after, ["reer120", "reer51"], seed=23)
+    if neer_after is not None:
+        reer = _corrupt(reer, reer.month > neer_after, ["neer120", "neer51"], seed=24)
+    out["reer"] = reer
+    if ctot_after is not None:
+        out["ctot"] = _corrupt(s["ctot"], s["ctot"].month > ctot_after, ["ctot"], seed=25)
+    if wdi_from is not None:
+        out["buffers"] = _corrupt(s["buffers"], s["buffers"].year >= wdi_from, ["std_res", "res_months"], seed=26)
+    if irr_from is not None:
+        out["irr"] = _corrupt(s["irr"], s["irr"].year >= irr_from, ["irr_fine"], seed=27)
+    return out
+
+
+def _future_struct(s: dict, as_of: pd.Period) -> dict:
+    """Всё, чего в месяце `as_of` ещё не случилось."""
+    return _corrupt_struct(s, fx_after=as_of, eur_after=as_of, reer_after=as_of, neer_after=as_of, ctot_after=as_of,
+                           wdi_from=as_of.year, irr_from=as_of.year)
+
+
+def _unpublished_struct(s: dict, as_of: pd.Period) -> dict:
+    """Всё, что к концу месяца `as_of` случилось, но ещё НЕ ОПУБЛИКОВАНО (плюс будущее)."""
+    month = pd.Series([as_of])
+    return _corrupt_struct(
+        s, fx_after=as_of, eur_after=as_of, neer_after=as_of,
+        reer_after=as_of - temporal.monthly_lag("bruegel_reer"), ctot_after=as_of - temporal.monthly_lag("imf_ctot"),
+        wdi_from=int(temporal.last_available_year_in_month("wdi_annual", month).iloc[0]) + 1,
+        irr_from=int(temporal.last_available_year_in_month("irr_regime", month).iloc[0]) + 1)
+
+
+def test_future_blindness_fx_struct_features():
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s = synth_fx_struct(KR_COUNTRIES, months)
+    as_of = pd.Period("2010-06", freq="M")
+    cols = struct_features.COLUMNS + ["irr_extended"]
+    clean, bad = _struct(s), _struct(_future_struct(s, as_of))
+    past = lambda d: d[d.month <= as_of].sort_values(["iso3", "month"])  # noqa: E731
+    assert all(clean[clean.month == as_of][c].nunique() > 1 for c in struct_features.CONT)
+    _same(past(clean), past(bad), cols)
+    assert _differs(clean[clean.month > as_of], bad[bad.month > as_of], cols), "контроль: порча будущего обязана быть видна в будущем"
+
+
+def test_available_from_fx_struct_features():
+    """Строка месяца m не использует REER позже m−2, условия торговли позже m−6, годовые
+    данные ВБ и режим IRR — раньше их `available_from`. Контроль: без лага порча видна."""
+    t = temporal
+    assert t.monthly_lag("bruegel_reer") == 2 and t.monthly_lag("imf_ctot") == 6 and t.monthly_lag("bruegel_neer") == 0
+    assert StructLags() == StructLags(reer_months=2, ctot_months=6, wdi_source="wdi_annual", irr_source="irr_regime")
+    assert t.available_from("irr_regime", 2019) == pd.Timestamp("2021-12-01")  # стабильный релиз IRR — ноябрь 2021
+    assert t.publication_lag("irr_regime", "jan1") == 2 == t.publication_lag("irr_regime", "apr1")
+    nov_dec = pd.Series(pd.period_range("2010-11", "2010-12", freq="M"))
+    assert t.last_available_year_in_month("irr_regime", nov_dec).tolist() == [2007, 2008]
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s = synth_fx_struct(KR_COUNTRIES, months)
+    cols = struct_features.COLUMNS
+    for as_of in (pd.Period("2010-02", freq="M"), pd.Period("2010-12", freq="M")):  # декабрь — срез годового контура
+        row = lambda d: d[d.month == as_of].sort_values("iso3")  # noqa: E731
+        bad = _unpublished_struct(s, as_of)
+        _same(row(_struct(s)), row(_struct(bad)), cols)
+        for lags, feats in ((StructLags(reer_months=0), ["reer_gap", "reer_peg"]), (StructLags(ctot_months=0), ["ctot_d12"]),
+                            (StructLags(wdi_source=None), ["gg_log", "res_months_log"]), (StructLags(irr_source=None), ["irr_peg"])):
+            assert _differs(row(_struct(s, lags)), row(_struct(bad, lags)), feats), f"контроль: без лага порча обязана быть видна ({feats})"
+    # годовой срез: декабрьская строка года T = то, что известно «на 1 января T+1»
+    annual = struct_features.annual_view(_struct(s))
+    assert annual.year.max() == 2014 and not annual.duplicated(["iso3", "year"]).any()
+
+
+def test_irr_chronicle_end_is_flagged():
+    """После последнего размеченного года IRR режим не «плавающий», а замороженный с флагом
+    (инвариант 6); данные «после конца хроники» на признак не влияют."""
+    assert irr_source.IRR_LAST_YEAR == 2019 and irr_source.PEG_MAX_CODE == 8
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s = synth_fx_struct(KR_COUNTRIES, months)
+    last = 2005
+    clean = _struct(s, irr_last_year=last)
+    known = temporal.last_available_year_in_month("irr_regime", clean.month)
+    assert (clean.irr_extended == (known > last).astype(int)).all() and clean.irr_extended.sum() > 0
+    frozen = clean[clean.irr_extended == 1].merge(s["irr"][s["irr"].year == last], on="iso3")
+    assert (frozen.irr_peg == (frozen.irr_fine <= irr_source.PEG_MAX_CODE).astype(float)).all()
+    bad = _struct(_corrupt_struct(s, irr_from=last + 1), irr_last_year=last)
+    _same(clean, bad, ["irr_peg", "irr_missing", "irr_extended"])
+
+
+def test_peg_sees_euro_anchor():
+    """Валюта, привязанная к евро, качается к доллару вместе с евро — живой индикатор обязан
+    видеть привязку (иначе она выглядит как плавание)."""
+    months = pd.period_range("1999-01", "2014-12", freq="M")
+    s = synth_fx_struct(["PEG", "FLT", "USD"], months, seed=5)
+    rng = np.random.default_rng(6)
+    eur = s["eur"].eur_usd.to_numpy()
+    fx = pd.concat([
+        pd.DataFrame({"iso3": "PEG", "month": months, "fx": 1.95583 * eur}),                                    # привязка к евро
+        pd.DataFrame({"iso3": "FLT", "month": months, "fx": np.exp(np.cumsum(rng.normal(0, 0.04, len(months))))}),  # плавание
+        pd.DataFrame({"iso3": "USD", "month": months, "fx": 3.75}),                                             # привязка к доллару
+    ], ignore_index=True)
+    out = _struct({**s, "fx": fx})
+    last = out[out.month == months[-1]].set_index("iso3").peg_share12
+    assert last["PEG"] == 1.0 and last["USD"] == 1.0 and last["FLT"] < 0.5
+    usd_only = (np.abs(np.diff(np.log(1.95583 * eur))) <= struct_features.PEG_STEP)[-12:].mean()
+    assert usd_only < 0.8, "контроль: к доллару привязанная к евро валюта привязкой не выглядит"
+
+
+def test_ctot_uses_rolling_weights():
+    """Сырьевые условия торговли — только со скользящими весами ПРОШЛЫХ лет: у фиксированных
+    весов структура экспорта будущих лет попадает в прошлое."""
+    from seldon.sources.download import SOURCES
+
+    assert imf_source.CTOT_WEIGHTS == "R_RW_IX"
+    flow, filters = SOURCES["imf"]["flows"]["ctot"]
+    assert flow == "CTOT" and filters["WGT_TYPE"] == imf_source.CTOT_WEIGHTS and filters["INDICATOR"] == imf_source.CTOT_INDICATOR
+
+
+def test_future_blindness_fx_struct_monthly():
+    raw, annual, war = synth_monthly()
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s = synth_fx_struct(KR_COUNTRIES, months, fx=raw)
+    as_of = pd.Period("2010-06", freq="M")
+
+    def run(raw, annual, war, s, name):
+        p = econ_struct.build_kr_panel(_struct(s), raw, annual, war)
+        return econ_struct.forecast_asof_kr(p, as_of, name).sort_values("iso3")
+
+    bad_raw = _corrupt(raw, raw.month > as_of, KR_COLS)
+    bad = (bad_raw, _corrupt(annual, annual.year >= as_of.year, ["value"]),
+           _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]),
+           _future_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of))
+    for name in ("struct", "reer"):
+        clean = run(raw, annual, war, s, name)
+        assert clean.logit.notna().all() and clean.logit.nunique() > 1
+        _same(clean, run(*bad, name), ["logit", "C", *struct_features.COLUMNS])
+    # эталон `ref` — та же логрегрессия, что в боевом контуре
+    ref = run(raw, annual, war, s, "ref")
+    battle = econ_kr.forecast_asof(econ_kr.build_panel(raw, annual, war, target="deval15"), as_of).sort_values("iso3")
+    _same(ref, battle, ["logit"])
+    assert _differs(ref, run(raw, annual, war, s, "struct"), ["logit"]), "контроль: набор обязан менять прогноз"
+
+
+def _annual_struct_inputs():
+    gmd, dec, lv = synth_annual_fx()
+    months = pd.period_range("1950-01", "2015-12", freq="M")
+    return gmd, dec, lv, synth_fx_struct(sorted(dec.iso3.unique()), months, seed=12)
+
+
+def test_future_blindness_fx_struct_annual():
+    gmd, dec, lv, s = _annual_struct_inputs()
+    T = 2000
+    models = ["logit", "extree"]
+
+    def run(gmd, dec, s, name="struct"):
+        p = econ_struct.build_long_panel(_struct(s), gmd, dec, lv)
+        return econ_struct.forecast_asof_long(p, T, name, n_estimators=40).sort_values("iso3")
+
+    num = [c for c in gmd.columns if c not in ("ISO3", "countryname", "year")]
+    bad_gmd, bad_dec = _corrupt(gmd, gmd.year > T, num), _corrupt(dec, dec.year > T, ["fx_dec"])
+    clean = run(gmd, dec, s)
+    assert clean[models].notna().all().all() and clean.extree.nunique() > 1 and clean.C.notna().all()
+    _same(clean, run(bad_gmd, bad_dec, _future_struct(s, pd.Period(f"{T}-12", freq="M"))), models + ["C", *struct_features.COLUMNS])
+    # эталон `ref` — боевая модель как есть
+    ref = run(gmd, dec, s, "ref")
+    battle = econ_long.forecast_asof(econ_long.build_panel(gmd, dec, lv, target="deval25", last_year=2025), T, n_estimators=40)
+    _same(ref, battle.sort_values("iso3"), ["logit", "extree"])
+    assert _differs(ref, clean, ["logit"]), "контроль: набор обязан менять прогноз"
+
+
+def test_available_from_fx_struct_annual():
+    """Годовой прогноз «на 1 января T+1»: REER позже октября T, условия торговли позже июня T,
+    данные ВБ за T и режим IRR за T−1 ещё не вышли и влиять не могут."""
+    gmd, dec, lv, s = _annual_struct_inputs()
+    T = 2000
+
+    def run(s, lags=StructLags()):
+        p = econ_struct.build_long_panel(_struct(s, lags), gmd, dec, lv)
+        return econ_struct.forecast_asof_long(p, T, "struct", n_estimators=40).sort_values("iso3")
+
+    bad = _unpublished_struct(s, pd.Period(f"{T}-12", freq="M"))
+    cols = ["logit", "extree", *struct_features.COLUMNS]
+    _same(run(s), run(bad), cols)
+    assert _differs(run(s, STRUCT_NO_LAG), run(bad, STRUCT_NO_LAG), struct_features.CONT), "контроль: без лага порча обязана быть видна"
 
 
 # ---------------------------------------------------------------------------

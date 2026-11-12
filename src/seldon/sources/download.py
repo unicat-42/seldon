@@ -22,6 +22,8 @@
     uv run python -m seldon download epr
     uv run python -m seldon download unga
     uv run python -m seldon download mid
+    uv run python -m seldon download irr
+    uv run python -m seldon download bruegel
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -42,7 +44,9 @@ import requests
 from tqdm import tqdm
 
 from seldon import DATA_RAW
+from seldon.sources.bruegel import BRUEGEL_URL, BRUEGEL_ZIP
 from seldon.sources.gmd import GMD_VERSION
+from seldon.sources.irr import IRR_FILE, IRR_URL
 from seldon.sources.epr import EPR_VERSION
 from seldon.sources.ucdp import UCDP_VERSION
 from seldon.sources.unga import UNGA_DATAVERSE_ID, UNGA_FILE
@@ -130,6 +134,10 @@ SOURCES: dict[str, dict] = {
             # чекпоинт 3.2: военные расходы (оценки SIPRI) — в текущих долларах и в % ВВП
             "MS.MIL.XPND.CD": "milex_usd",
             "MS.MIL.XPND.GD.ZS": "milex_gdp",
+            # чекпоинт 3.3: правило Гринспена–Гвидотти — краткосрочный внешний долг в % резервов
+            # (International Debt Statistics: только развивающиеся страны) и резервы в месяцах импорта
+            "DT.DOD.DSTC.IR.ZS": "short_debt_reserves",
+            "FI.RES.TOTL.MO": "reserves_months",
         },
         "api": "https://api.worldbank.org/v2/country/all/indicator/{ind}?format=json&per_page=20000&date=1960:2025",
     },
@@ -224,6 +232,20 @@ SOURCES: dict[str, dict] = {
         "unzip": True,
         "sha256": {"Dyadic-MIDs-4.02.zip": "740afa58c847a6724b0b679d37f894663999b2a0525a8a7b6d330a648d9a64f4"},
     },
+    # Режим курса Ilzetzki–Reinhart–Rogoff, стабильный релиз ноября 2021 (1940–2019).
+    # Прямая ссылка с сайта автора; см. `sources/irr.py`.
+    "irr": {
+        "files": {IRR_FILE: IRR_URL},
+        "unzip": False,
+        "sha256": {IRR_FILE: "a566f77638721985de7c410b0ed9f92108b659ae7bffe62f437f269076715a04"},
+    },
+    # REER Bruegel (Darvas), релиз 11.10.2026: месячный реальный эффективный курс, 178 стран.
+    # Прямая ссылка на архив релиза; см. `sources/bruegel.py`.
+    "bruegel": {
+        "files": {BRUEGEL_ZIP: BRUEGEL_URL},
+        "unzip": True,
+        "sha256": {BRUEGEL_ZIP: "6b3220e14f8535e826b493a4a10cef1d39b09566aa197e7b7efbc75fbea3d4d0"},
+    },
     # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
     # развивающиеся (Россия, Турция, Бразилия, Китай...), поквартально с 1940–1990-х, % ВВП.
     # Длиннее рядов ВБ на 10–20 лет у развитых и с поправками на разрывы. Открытый bulk-архив.
@@ -237,7 +259,7 @@ SOURCES: dict[str, dict] = {
     # валютных кризисов Kaminsky–Reinhart. Фильтры — через параметры c[...]: ключ после
     # первого измерения этот API игнорирует (проверено 10.11.2026).
     "imf": {
-        "api": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/{flow}/+/*",
+        "api": "https://api.imf.org/external/sdmx/3.0/data/dataflow/{agency}/{flow}/+/*",
         "flows": {
             # имя файла: (dataflow, фильтры)
             "exchange_rates": ("ER", {"INDICATOR": "XDC_USD", "FREQUENCY": "M"}),
@@ -263,7 +285,16 @@ SOURCES: dict[str, dict] = {
             # (домохозяйства + нефинансовые компании) — покупка валюты и вывод на счета за рубеж.
             # Поведенческий слой: бегство в валюту (behavior_ru.py).
             "bop_cash_deposits": ("BOP", {"INDICATOR": "O_F2_S1V,O_F2_S1Z", "FREQUENCY": "Q"}),
+            # чекпоинт 3.3: сырьевые условия торговли (Commodity Terms of Trade) — поток другого
+            # департамента (IMF.RES). Только вариант со СКОЛЬЗЯЩИМИ весами прошлых лет (R_RW_IX):
+            # у фиксированных весов структура экспорта будущих лет попадает в прошлое
+            "ctot": ("CTOT", {"INDICATOR": "CEMPI_CTOTXM_GDP", "WGT_TYPE": "R_RW_IX", "FREQUENCY": "M"}),
         },
+        # поток → агентство, если не IMF.STA
+        "agency": {"CTOT": "IMF.RES"},
+        # контрольные суммы: ответ API на тот же запрос побайтно стабилен (проверено 12.11.2026);
+        # другая сумма — МВФ обновил набор: проверь лаг в `core/temporal.py` и обнови сумму
+        "sha256": {"ctot.csv": "932d2a61e08b6b07d98716a01ac11460758914ee6b2355090fa140dbbcce0631"},
         "accept": "application/vnd.sdmx.data+csv;version=2.0.0",
     },
 }
@@ -416,9 +447,12 @@ def fetch_imf() -> None:
     for name, (flow, filters) in spec["flows"].items():
         dest = folder / f"{name}.csv"
         params = {f"c[{k}]": v for k, v in filters.items()}
-        url = requests.Request("GET", spec["api"].format(flow=flow), params=params).prepare().url
+        agency = spec.get("agency", {}).get(flow, "IMF.STA")
+        url = requests.Request("GET", spec["api"].format(agency=agency, flow=flow), params=params).prepare().url
+        want = spec.get("sha256", {}).get(dest.name)
         if dest.exists() and dest.stat().st_size > 0:
             print(f"  есть, пропускаю: {dest.name}")
+            _check_sha256(dest, want)
             entries.append({"url": url, "file": dest.name, "bytes": dest.stat().st_size, "skipped": True})
             continue
         tmp = dest.with_suffix(".part")
@@ -430,11 +464,26 @@ def fetch_imf() -> None:
         tmp.rename(dest)
         n_rows = sum(1 for _ in open(dest)) - 1
         print(f"  скачано: {dest.name} ({n_rows} строк, {dest.stat().st_size / 1e6:.1f} МБ)")
-        entries.append({
+        entry = {
             "url": url, "file": dest.name, "bytes": dest.stat().st_size,
             "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        })
+        }
+        if want:
+            entry["sha256"] = _check_sha256(dest, want)
+        entries.append(entry)
     write_manifest(folder, entries)
+
+
+def _check_sha256(path: Path, want: str | None) -> str | None:
+    """Сверить контрольную сумму файла с закреплённой (если она задана)."""
+    if not want:
+        return None
+    got = sha256_of(path)
+    if got != want:
+        raise RuntimeError(f"контрольная сумма {path.name} не совпала: ожидалось {want}, получено {got} — "
+                           "источник обновил данные, проверь версию и лаги публикации")
+    print(f"  {path.name}: sha256 совпадает ({got[:12]}…)")
+    return got
 
 
 def fetch_acled() -> None:
@@ -554,6 +603,8 @@ FETCHERS = {
     "epr": lambda: fetch_static("epr"),
     "unga": lambda: fetch_static("unga"),
     "mid": lambda: fetch_static("mid"),
+    "irr": lambda: fetch_static("irr"),
+    "bruegel": lambda: fetch_static("bruegel"),
     "ucdp": lambda: fetch_static("ucdp"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
@@ -572,7 +623,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel"]
 
 
 def main(argv: list[str]) -> int:

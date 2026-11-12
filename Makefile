@@ -4,7 +4,9 @@
 #   make variants   срезы для сравнения: старые целевые, бустинг, all_currencies, другие хроники,
 #                   структурные наборы войн (V-Dem, EPR) против эталона `pitf` (`compare_war`),
 #                   диадная панель и два канала риска (`dyads`, `model_dyad`, `compare_war dyad`),
-#                   прогноз «на 1 апреля» (`apr1` — макроданные без лага публикации)
+#                   прогноз «на 1 апреля» (`apr1` — макроданные без лага публикации),
+#                   структурный валютный блок против боевых валютных моделей (`econ_struct`,
+#                   `compare_fx`; `ctot_rt` — условия торговли без задержки набора МВФ)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make test       автотесты на утечки будущего (секунды)
 #   make vintage    заморозить прогнозы в forecasts/ГГГГ-ММ/ (после `make all`; раз в месяц)
@@ -68,6 +70,10 @@ variants:
 	$(RUN) econ_boe_em lv
 	$(RUN) econ_long deval25 apr1
 	$(RUN) econ_boe_em apr1
+	$(RUN) econ_struct
+	$(RUN) compare_fx
+	$(RUN) econ_struct ctot_rt
+	$(RUN) compare_fx ctot_rt
 
 replicate:
 	$(RUN) econ_boe

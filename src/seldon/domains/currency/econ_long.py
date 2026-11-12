@@ -61,6 +61,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import log_loss
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -70,6 +71,7 @@ from seldon.core.metrics import auc, auc_within, brier
 from seldon.core.panel import full_grid, lag_columns
 from seldon.core.temporal import label_known, publication_lag
 from seldon.domains.currency.long_features import BASE, FEATURES, MISSING, add_features
+from seldon.domains.currency.struct_features import attach
 from seldon.domains.currency.long_targets import FIRST_YEAR, H, LAST_YEAR, MIN_POS_TRAIN, add_events, add_target
 from seldon.evaluation.backtest import backtest
 from seldon.sources.gmd import load_gmd
@@ -81,6 +83,10 @@ EVAL_FROM = 1996
 # годовые ряды GMD, которые к 1 января ещё не вышли (уровни; признаки считаются из них)
 MACRO_COLS = ["infl", "rGDP", "nGDP", "govdebt_GDP", "CA_GDP", "M2", "M3", "M0"]
 MACRO_LAG = publication_lag("gmd_annual", "jan1")  # 1 год: прогноз «на 1 января»
+# выбор силы регуляризации логрегрессии внутри обучения (чекпоинт 3.3, `C=None`)
+C_GRID = (0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0)
+C_DEFAULT = 1.0
+VAL_YEARS = 5
 
 
 def load_lv() -> pd.DataFrame:
@@ -88,10 +94,13 @@ def load_lv() -> pd.DataFrame:
 
 
 def build_panel(gmd: pd.DataFrame, dec_fx: pd.DataFrame, lv: pd.DataFrame, target: str = "deval25",
-                last_year: int = LAST_YEAR, drop_shared: bool = True, macro_lag: int = MACRO_LAG) -> pd.DataFrame:
+                last_year: int = LAST_YEAR, drop_shared: bool = True, macro_lag: int = MACRO_LAG,
+                struct: pd.DataFrame | None = None) -> pd.DataFrame:
     """Панель страна×год с признаками и целевой. Чистая функция: признаки года t зависят
     только от курса ≤ декабря t и макроданных GMD ≤ t − `macro_lag` (кроме `y` — это будущее).
-    После сборки колонки `MACRO_COLS` на строке t содержат значения года t − `macro_lag`."""
+    После сборки колонки `MACRO_COLS` на строке t содержат значения года t − `macro_lag`.
+    `struct` — годовая таблица структурных признаков (`struct_features.annual_view`,
+    чекпоинт 3.3); без неё панель та же, что в боевом конвейере."""
     g = gmd.rename(columns={"ISO3": "iso3", "countryname": "country"})
     g = g[(g.year >= FIRST_YEAR - 10) & (g.year <= last_year)].copy()
     g["year"] = g.year.astype(int)
@@ -114,37 +123,64 @@ def build_panel(gmd: pd.DataFrame, dec_fx: pd.DataFrame, lv: pd.DataFrame, targe
     p = p.merge(lv, on=["iso3", "year"], how="left").rename(columns={"lv_currency": "lv_cc"})
     p = add_events(p.sort_values(["iso3", "year"]).reset_index(drop=True))  # события и `hyper_prev` — по фактическим годам
     p = lag_columns(p, "iso3", "year", [c for c in MACRO_COLS if c in p], macro_lag)
-    return add_target(add_features(p), target)
+    p = add_target(add_features(p), target)
+    return p if struct is None else attach(p, struct, ["iso3", "year"])
 
 
-def make_models(seed: int = 0, n_estimators: int = 400) -> dict:
+def make_models(seed: int = 0, n_estimators: int = 400, C: float = C_DEFAULT) -> dict:
     return {
-        "logit": make_pipeline(StandardScaler(), LogisticRegression(C=1.0, max_iter=3000)),
+        "logit": make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=3000)),
         "extree": ExtraTreesClassifier(n_estimators=n_estimators, min_samples_leaf=10, random_state=seed, n_jobs=-1),
     }
 
 
-def _design(d: pd.DataFrame, lo: pd.Series, hi: pd.Series) -> np.ndarray:
-    return pd.concat([d[BASE].clip(lo, hi, axis=1), d[MISSING]], axis=1).values
+def _design(d: pd.DataFrame, lo: pd.Series, hi: pd.Series, cont: list[str] = BASE, flags: list[str] = MISSING) -> np.ndarray:
+    return pd.concat([d[cont].clip(lo, hi, axis=1), d[flags]], axis=1).values
+
+
+def choose_C(train: pd.DataFrame, cont: list[str] = BASE, flags: list[str] = MISSING,
+             grid: tuple[float, ...] = C_GRID) -> float:
+    """Сила регуляризации логрегрессии — по времени ВНУТРИ обучения: последние `VAL_YEARS` лет
+    обучения — проверка, учимся на строках, чья метка к началу проверки уже известна
+    (год ≤ граница − H). В тест не подглядываем: `train` — только строки с известной меткой."""
+    cut = int(train.year.max()) - VAL_YEARS
+    fit, val = train[train.year <= cut - H], train[train.year > cut]
+    if fit.y.sum() < MIN_POS_TRAIN or val.y.nunique() < 2:
+        return C_DEFAULT
+    lo, hi = fit[cont].quantile(0.01), fit[cont].quantile(0.99)
+    X, Xv = _design(fit, lo, hi, cont, flags), _design(val, lo, hi, cont, flags)
+    loss = {}
+    for C in grid:
+        m = make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=3000)).fit(X, fit.y.astype(int))
+        loss[C] = log_loss(val.y.astype(int), m.predict_proba(Xv)[:, 1], labels=[0, 1])
+    return min(loss, key=loss.get)
 
 
 def forecast_asof(p: pd.DataFrame, T: int, start: int = FIRST_YEAR, train_through: int | None = None,
-                  n_estimators: int = 400, return_models: bool = False):
+                  n_estimators: int = 400, return_models: bool = False, cont: list[str] = BASE,
+                  flags: list[str] = MISSING, C: float | None = C_DEFAULT):
     """Прогноз с признаков года T на T+1…T+2 для всех стран со своей валютой.
     Обучение — оцениваемые строки `start` ≤ год ≤ `train_through` (по умолчанию T−2: метка
-    строки t смотрит в t+2, позже T−2 она в момент T ещё не известна)."""
+    строки t смотрит в t+2, позже T−2 она в момент T ещё не известна).
+    `cont` / `flags` — числовые признаки и флаги пропусков (по умолчанию боевой набор);
+    `C=None` — сила регуляризации логрегрессии выбирается внутри обучения (`choose_C`)."""
     known = label_known(p.year, T, H) if train_through is None else (p.year <= train_through)
     train = p[p.evaluable & known & (p.year >= start)]
     test = p[(p.year == T) & p.usable].copy()
     models = {}
     for k in ("base_rate", "persist", "logit", "extree"):
         test[k] = np.nan
+    if C is None:
+        test["C"] = np.nan  # выбранная сила регуляризации — только в режиме выбора
     if train.y.sum() >= MIN_POS_TRAIN and not test.empty:
-        lo, hi = train[BASE].quantile(0.01), train[BASE].quantile(0.99)
-        models = make_models(n_estimators=n_estimators)
+        lo, hi = train[cont].quantile(0.01), train[cont].quantile(0.99)
+        c = C
+        if C is None:
+            c = test["C"] = choose_C(train, cont, flags)
+        models = make_models(n_estimators=n_estimators, C=c)
         for k, m in models.items():
-            m.fit(_design(train, lo, hi), train.y.astype(int))
-            test[k] = m.predict_proba(_design(test, lo, hi))[:, 1]
+            m.fit(_design(train, lo, hi, cont, flags), train.y.astype(int))
+            test[k] = m.predict_proba(_design(test, lo, hi, cont, flags))[:, 1]
         test["base_rate"] = train.y.mean()
         rate = train.groupby((train.deval_5 > 0).astype(int)).y.mean()
         test["persist"] = (test.deval_5 > 0).astype(int).map(rate).fillna(train.y.mean()).to_numpy()
