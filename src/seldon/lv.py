@@ -18,12 +18,15 @@ Appendix Table 1 «Crisis Dates» (страницы 30–33), файл `data/raw
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pandas as pd
 
 from seldon import DATA_PROCESSED, DATA_RAW
+from seldon.download import GMD_VERSION
 
 PDF = DATA_RAW / "lv" / "wp18206.pdf"
 PAGES = (31, 34)  # страницы PDF (в статье 30–33)
@@ -68,9 +71,22 @@ def _column(start: int, bounds: tuple[int, int]) -> str:
     return "restructuring"
 
 
-def parse(known_names: set[str]) -> pd.DataFrame:
-    text = subprocess.run(["pdftotext", "-layout", "-f", str(PAGES[0]), "-l", str(PAGES[1]), str(PDF), "-"],
+def extract_text(pdf: Path = PDF) -> str:
+    """Текст страниц с таблицей, с сохранением колонок (`pdftotext -layout` из poppler).
+    Парсер ниже опирается на позиции колонок именно в этой раскладке; `pdfplumber`
+    (чистый Python) проверен 12.11.2026 — см. отчёт сессии аудита."""
+    if not pdf.exists():
+        raise FileNotFoundError(f"нет файла {pdf}: запусти `uv run python -m seldon.download lv` "
+                                "или положи туда PDF статьи IMF WP/18/206 вручную")
+    if shutil.which("pdftotext") is None:
+        raise RuntimeError("не найдена программа `pdftotext` (пакет poppler). Установи: `brew install poppler` "
+                           "(macOS) или `apt install poppler-utils` (Linux) и запусти ещё раз")
+    return subprocess.run(["pdftotext", "-layout", "-f", str(PAGES[0]), "-l", str(PAGES[1]), str(pdf), "-"],
                           check=True, capture_output=True, text=True).stdout
+
+
+def parse(known_names: set[str], text: str | None = None) -> pd.DataFrame:
+    text = extract_text() if text is None else text
     pat = re.compile(r"\d{4}")
     records: list[dict] = []
     pending_years: list[tuple[str, int]] = []
@@ -112,7 +128,7 @@ def parse(known_names: set[str]) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
-    gmd = pd.read_stata(DATA_RAW / "gmd" / "GMD_2026_09.dta", columns=["ISO3", "countryname"]).drop_duplicates()
+    gmd = pd.read_stata(DATA_RAW / "gmd" / f"GMD_{GMD_VERSION}.dta", columns=["ISO3", "countryname"]).drop_duplicates()
     name_to_iso = dict(zip(gmd.countryname, gmd.ISO3))
     known = set(name_to_iso) | set(ALIASES)
     crises, names = parse(known)

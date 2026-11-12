@@ -1,24 +1,25 @@
-"""Таблица риска на 2025–26: война, валютный кризис, банковский кризис — по странам.
+"""Таблица риска на 2025–27: война, валютный кризис, банковский кризис — по странам.
 
 Запуск:
     uv run python -m seldon.risk_table
 
-Три модели проекта, обученные на всём, что известно, и применённые к последним данным:
-  1. Война (`model_hist pitf`, логрегрессия): признаки 2024 → онсет войны ≥ 25 / ≥ 1000
-     погибших в 2025. UCDP есть по 2024, поэтому 2026 не считаем.
+Три модели проекта, обученные на всём, что известно, и применённые к последним данным
+(после аудита 12.11.2026 — без утечек будущего, см. `tests/test_no_leakage.py`):
+  1. Война (`model_hist pitf`, две логрегрессии — начала и продолжения): признаки 2024 →
+     государственная война (`state_war25`, `state_war1000`) в 2025. UCDP есть по 2024,
+     поэтому 2026 не считаем. Теракты и банды — отдельная колонка `nonstate25_now`.
   2. Валютный кризис, две шкалы:
-     - годовая модель (`econ_long`, GMD 1870–2025, деревья, AUC 0,77 вслепую — лучшая):
-       признаки 2024 → девальвация ≥ 25 % в 2025–26; признаки 2025 → 2026–27 (предварительно);
-     - месячный «термометр» (`econ_kr`, AUC 0,60): признаки последнего месяца МВФ (обычно
-       2026-09) → EMP-кризис в ближайшие 12 месяцев; `pressure`, `signals`, `logit`.
-  3. Банковский кризис (`econ_boe_em`): признаки 2024 → кризис в 2025–26 (надёжно) и
-     признаки 2025 → 2026–27 (предварительно: в GMD за 2025 могут быть оценки). Деревья
-     BoE с JST (`jst_extree`) и объединённые (`pooled_extree`), наборы `full`, `core` и
-     `nomoney` (последний — чтобы были Россия и еврозона, у которых нет M3).
-
-Обучение «на всём известном»: валютная модель — на окнах, закрывшихся к последнему
-месяцу; банковская — своя часть на годах ≤ 2023 (кризисы 2024–25 в GMD уже проставлены);
-война — на парах по 2023 → 2024.
+     - годовая модель (`econ_long`: декабрьский курс МВФ + GMD, 1957–2025): признаки 2025 →
+       девальвация ≥ 25 % (декабрь к декабрю) в 2026–27 — основной прогноз; признаки 2024 →
+       2025–26 — для сверки: 2025 уже известен (`fxa_deval_2025`);
+     - месячный «термометр» (`econ_kr`): признаки последнего месяца МВФ → EMP-кризис в
+       ближайшие 12 месяцев; `pressure`, `signals`, `logit`.
+     У стран с общей или чужой валютой (еврозона, франк КФА, доллар) своего валютного риска
+     нет: вероятность пустая, в колонке `fx_regime` — код валюты.
+  3. Банковский кризис (`econ_boe_em`): признаки 2024 → кризис в 2025–26 и признаки 2025 →
+     2026–27 (предварительно: в GMD за 2025 могут быть оценки). Деревья BoE с JST
+     (`jst_extree`) и объединённые (`pooled_extree`), наборы `full`, `core`, `nomoney`.
+     Свои данные — только годы с размеченной хроникой кризисов (≤ 2015), JST — ≤ 2018.
 
 Выход:
     reports/risk_2025_26.csv — все страны;
@@ -31,13 +32,10 @@ import sys
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, PROJECT_ROOT
-from seldon import econ_boe_em, econ_kr, econ_long
-from seldon.countries import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3
+from seldon import econ_boe_em, econ_kr, econ_long, model_hist
+from seldon.countries import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3, shared_currency
 from seldon.econ_boe import JST_R6, build_boe_dataset, load_jst
 from seldon.features import FEATURES as HIST_FEATURES
 from seldon.features_pitf import PITF_FEATURES
@@ -45,7 +43,13 @@ from seldon.features_pitf import PITF_FEATURES
 REPORTS = PROJECT_ROOT / "reports"
 FX_LAST_MONTH = "2026-10"
 FX_MIN_AS_OF = "2026-04"  # страны, у которых курс кончается раньше, в таблицу не берём
+FX_REGIME_YEAR = 2026
+FX_ANNUAL_YEARS = (2024, 2025)
+FX_ANNUAL_TRAIN_THROUGH = 2023  # метка строки t смотрит в t+2; декабрь 2025 известен
 BANK_YEARS = (2024, 2025)
+# только государства системы Gleditsch–Ward: у территорий (Гернси, Гибралтар, Гренландия…)
+# чужая валюта и пустые признаки, флаги пропусков модель читает как риск
+GW_ISO = {v for v in GW_TO_ISO3.values() if v} | POST_SOVIET_ISO3
 
 
 # ---------------------------------------------------------------------------
@@ -56,64 +60,42 @@ BANK_YEARS = (2024, 2025)
 def war_risk() -> pd.DataFrame:
     f = pd.read_parquet(DATA_PROCESSED / "features_pitf_country_year.parquet")
     feats = [*HIST_FEATURES, *PITF_FEATURES]
-    last = f.year.max()
-    out = f[f.year == last][["gw", "country", "war25", "war1000"]].copy()
-    for target in ("war25", "war1000"):
-        nxt = f[["gw", "year", target]].assign(year=lambda d: d.year - 1).rename(columns={target: "y"})
-        d = f.merge(nxt, on=["gw", "year"], how="inner")
-        train = d[d.y.notna() & (d.year <= last - 1)]
-        m = make_pipeline(StandardScaler(), LogisticRegression(C=1.0, max_iter=1000)).fit(train[feats], train.y.astype(int))
-        test = f[f.year == last]
-        out[f"p_{target}_{last + 1}"] = m.predict_proba(test[feats])[:, 1]
+    last = int(f.year.max())
+    out = f[f.year == last][["gw", "country", "state_war25", "state_war1000", "nonstate25"]].copy()
+    for target in ("state_war25", "state_war1000"):
+        p = model_hist.forecast_asof(f, last, feats, target).set_index("gw")
+        out[f"p_{target}_{last + 1}"] = out.gw.map(p.p)
         at_risk = out[out[target] == 0]
         out[f"rank_{target}_at_risk"] = np.nan
         out.loc[at_risk.index, f"rank_{target}_at_risk"] = at_risk[f"p_{target}_{last + 1}"].rank(ascending=False, method="min")
     out["iso3"] = out.gw.map(GW_TO_ISO3)
-    out = out.rename(columns={"war25": "war25_now", "war1000": "war1000_now", "country": "country_ucdp"})
+    out = out.rename(columns={"state_war25": "state_war25_now", "state_war1000": "state_war1000_now",
+                              "nonstate25": "nonstate25_now", "country": "country_ucdp"})
     out["war_features_year"] = last
     return out[out.iso3.notna()].drop(columns="gw")
 
 
 # ---------------------------------------------------------------------------
-# 2. Валютный кризис
+# 2. Валютный кризис, месячный термометр
 # ---------------------------------------------------------------------------
 
 
 def fx_risk() -> pd.DataFrame:
-    econ_kr.LAST_MONTH = FX_LAST_MONTH
-    p = econ_kr.load_panel()
-    p = econ_kr.fill_cpi(p)
-    p = econ_kr.add_emp_and_crises(p)
-    p = econ_kr.add_indicators(p)
-    p = econ_kr.add_target(p, "crisis")
-    feats = list(econ_kr.INDICATORS)
-    known = p[p.evaluable & p.y.notna()]
-    # прогноз — последний месяц с курсом по каждой стране
+    as_of = pd.Period(FX_LAST_MONTH, freq="M")
+    p = econ_kr.build_panel(econ_kr.load_panel(FX_LAST_MONTH), econ_kr.load_annual_cpi(), econ_kr.load_war())
+    m = econ_kr.fit(p, as_of)  # метки — только окна, закрывшиеся к as_of; пороги — история ≤ as_of
+    # прогноз — последний месяц с курсом по каждой стране (признаки строки — только данные ≤ её месяца)
     last = p[p.fx.notna()].groupby("iso3").month.max()
-    test = p[p.iso3.isin(GW_ISO)].merge(last.rename("as_of"), on="iso3")
-    test = test[(test.month == test.as_of) & (test.as_of >= FX_MIN_AS_OF)].copy()
-    # для стран в «тишине после кризиса» прогноз тоже считаем, но помечаем
-    recent = p.groupby("iso3").crisis.apply(lambda s: s.tail(12).max())
-    test["crisis_last_12m"] = test.iso3.map(recent).fillna(0).astype(int)
-
-    sig = econ_kr.fit_signals(known)
-    s_tr = econ_kr.composite(known, sig, p)
-    s_te = econ_kr.composite(test, sig, p)
-    test["fx_signals"] = econ_kr.calibrate(s_tr, known.y, s_te).to_numpy()
-    test["fx_pressure"] = econ_kr.calibrate(known.emp_z_max3.fillna(0), known.y, test.emp_z_max3.fillna(0)).to_numpy()
-    tr = known[feats]
-    lo, hi = tr.quantile(0.01), tr.quantile(0.99)
-    med = tr.median().fillna(0.0)
-    logit = make_pipeline(StandardScaler(), LogisticRegression(C=0.3, max_iter=2000))
-    logit.fit(tr.clip(lo, hi, axis=1).fillna(med), known.y)
-    test["fx_logit"] = logit.predict_proba(test[feats].clip(lo, hi, axis=1).fillna(med))[:, 1]
-    for m in ("fx_pressure", "fx_signals", "fx_logit"):
-        test[f"rank_{m}"] = test[m].rank(ascending=False, method="min")
-    test["fx_base_rate"] = known.y.mean()
-    test["signals_fired"] = [
-        ",".join(ind for ind in sig if econ_kr._signal(test.loc[[i]], ind, econ_kr.INDICATORS[ind], sig[ind]["pct"], p).iloc[0] == 1)
-        for i in test.index
-    ]
+    test = p[p.iso3.isin(GW_ISO) & p.own_currency].merge(last.rename("as_of"), on="iso3")
+    test = test[(test.month == test.as_of) & (test.as_of >= FX_MIN_AS_OF)]
+    test = econ_kr.predict(m, test).rename(columns={k: f"fx_{k}" for k in ("pressure", "signals", "logit", "base_rate")})
+    # страны в «тишине после кризиса»: прогноз считаем, но помечаем
+    test["crisis_last_12m"] = (test.quiet_crisis < econ_kr.POST_CRISIS_DROP).astype(int)
+    for k in ("fx_pressure", "fx_signals", "fx_logit"):
+        test[f"rank_{k}"] = test[k].rank(ascending=False, method="min")
+    sig = m.sig_model
+    fired = {ind: econ_kr._signal(test, ind, econ_kr.INDICATORS[ind], sig[ind]["pct"], m.ref) for ind in sig}
+    test["signals_fired"] = [",".join(ind for ind in sig if fired[ind].loc[i] == 1) for i in test.index]
     cols = ["iso3", "as_of", "fx_pressure", "fx_signals", "fx_logit", "rank_fx_pressure", "rank_fx_signals",
             "rank_fx_logit", "fx_base_rate", "emp_z_max3", "deval12", "reserves_g12", "infl12", "crisis_last_12m",
             "signals_fired"]
@@ -123,46 +105,34 @@ def fx_risk() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 2б. Валютный кризис, годовая модель (econ_long: GMD 1870–2025, деревья, AUC 0,77 вслепую)
+# 2б. Валютный кризис, годовая модель (econ_long)
 # ---------------------------------------------------------------------------
-
-FX_ANNUAL_YEARS = (2024, 2025)
-# только государства системы Gleditsch–Ward: у территорий (Гернси, Гибралтар, Гренландия…)
-# чужая валюта и пустые признаки, флаги пропусков модель читает как риск
-GW_ISO = {v for v in GW_TO_ISO3.values() if v} | POST_SOVIET_ISO3
 
 
 def fx_annual_risk() -> pd.DataFrame:
-    """Признаки года t → девальвация ≥ 25 % в t+1 или t+2. Обучение на всех годах с известной
-    меткой (t ≤ 2022); прогноз с признаков 2024 (надёжно) и 2025 (GMD за 2025 может
-    содержать оценки)."""
-    econ_long.LAST_YEAR = FX_ANNUAL_YEARS[-1]
-    p = econ_long.add_target(econ_long.add_features(econ_long.load_panel()), "deval25")
+    """Признаки года t → девальвация ≥ 25 % (декабрь к декабрю) в t+1 или t+2."""
+    p = econ_long.build_panel(econ_long.load_gmd(), econ_long.load_dec_fx(), econ_long.load_lv(), "deval25")
     p = p[p.iso3.isin(GW_ISO)]
-    base = p[p.evaluable]
-    train = base[base.year <= FX_ANNUAL_YEARS[0] - econ_long.H]
-    lo, hi = train[econ_long.BASE].quantile(0.01), train[econ_long.BASE].quantile(0.99)
-    X = lambda d: pd.concat([d[econ_long.BASE].clip(lo, hi, axis=1), d[econ_long.MISSING]], axis=1).values
-    models = econ_long.make_models()
-    for m in models.values():
-        m.fit(X(train), train.y.astype(int))
     frames = []
+    base_rate = np.nan
     for y in FX_ANNUAL_YEARS:
-        # для прогноза не нужна метка — берём все страны с курсом и без гиперинфляции в прошлом году
-        t = p[(p.year == y) & p.deval.notna() & ~p.hyper_prev.fillna(False)].copy()
+        t = econ_long.forecast_asof(p, y, train_through=FX_ANNUAL_TRAIN_THROUGH)
         if t.empty:
             continue
+        base_rate = t.base_rate.iloc[0]
         sfx = "_2025_26" if y == 2024 else "_2026_27"
-        t[f"fxa_extree{sfx}"] = models["extree"].predict_proba(X(t))[:, 1]
-        t[f"fxa_logit{sfx}"] = models["logit"].predict_proba(X(t))[:, 1]
-        t[f"rank_fxa_extree{sfx}"] = t[f"fxa_extree{sfx}"].rank(ascending=False, method="min")
+        t[f"fxa_extree{sfx}"], t[f"fxa_logit{sfx}"] = t.extree, t.logit
+        t[f"rank_fxa_extree{sfx}"] = t.extree.rank(ascending=False, method="min")
+        t[f"rank_fxa_logit{sfx}"] = t.logit.rank(ascending=False, method="min")
         t[f"fxa_infl{sfx}"] = t.infl
         t[f"fxa_deval_prev{sfx}"] = 100 * t.deval_prev
         t[f"fxa_ca{sfx}"] = 100 * t.ca_level
         t[f"fxa_debt_d2{sfx}"] = 100 * t.debt_d2
         frames.append(t[["iso3"] + [c for c in t.columns if c.endswith(sfx)]].set_index("iso3"))
     out = pd.concat(frames, axis=1).reset_index()
-    out["fxa_base_rate"] = train.y.mean()
+    out["fxa_base_rate"] = base_rate
+    fact = p[p.year == 2025].set_index("iso3").deval
+    out["fxa_deval_2025"] = 100 * out.iso3.map(fact)  # что уже случилось: декабрь 2025 к декабрю 2024, %
     return out
 
 
@@ -172,18 +142,18 @@ def fx_annual_risk() -> pd.DataFrame:
 
 
 def bank_risk() -> pd.DataFrame:
-    econ_boe_em.LAST_YEAR = BANK_YEARS[-1]
-    panel = econ_boe_em.load_panel()
+    cfg = econ_boe_em.Config(last_year=BANK_YEARS[-1])
+    panel = econ_boe_em.load_panel(cfg)
     jst = load_jst(JST_R6, "Sheet1")
     frames: dict[str, list[pd.DataFrame]] = {}
     for tag, feats in econ_boe_em.FEATURE_SETS.items():
         data = econ_boe_em.build(panel, feats)
         jst_d = build_boe_dataset(jst, predictors=feats)
-        train_own = data[data.year <= 2023]  # кризисы 2024–25 в GMD известны
+        jst_d = jst_d[jst_d.year <= econ_boe_em.JST_LAST_LABEL_YEAR - 2]
+        train_own = data[data.year <= cfg.last_label_year - 2]  # дальше хроника не размечена
         lo, hi = jst_d[feats].min(), jst_d[feats].max()
         q1, q99 = train_own[feats].quantile(0.01), train_own[feats].quantile(0.99)
-        models = econ_boe_em.make_models()
-        jst_et = models["extree"].fit(jst_d[feats].values, jst_d.crisis.values)
+        jst_et = econ_boe_em.make_models()["extree"].fit(jst_d[feats].values, jst_d.crisis.values)
         pooled = pd.concat([jst_d, train_own])
         pooled_et = econ_boe_em.make_models()["extree"].fit(pooled[feats].clip(q1, q99, axis=1).values, pooled.crisis.values)
         own_lr = econ_boe_em.make_models()["logreg"].fit(train_own[feats].clip(q1, q99, axis=1).values, train_own.crisis.values)
@@ -224,22 +194,23 @@ def main(argv: list[str]) -> int:
             .merge(bank24, on="iso3", how="left").merge(bank25, on="iso3", how="left"))
     t["post_soviet"] = t.iso3.isin(POST_SOVIET_ISO3)
     t["country"] = t.iso3.map(ISO3_TO_SHORT).fillna(t.country_ucdp).fillna(t.iso3)
+    # режим валюты: own — своя (свой риск девальвации); иначе код общей/чужой валюты, прогноза нет
+    t["fx_regime"] = [shared_currency(i, FX_REGIME_YEAR) or "own" for i in t.iso3]
     t = t.sort_values("iso3").reset_index(drop=True)
     t.to_csv(REPORTS / "risk_2025_26.csv", index=False, float_format="%.4f")
 
-    war_col = [c for c in t.columns if c.startswith("p_war25_")][0]
-    war1000_col = [c for c in t.columns if c.startswith("p_war1000_")][0]
+    w25, w1000 = "p_state_war25_2025", "p_state_war1000_2025"
     pd.set_option("display.width", 250)
     ps = t[t.post_soviet].copy()
     print(f"\n=== Постсоветские страны ({len(ps)}) ===")
-    print("Война (признаки 2024 → 2025), место среди стран под риском (не воевавших в 2024):")
-    print(ps[["country", "war25_now", war_col, "rank_war25_at_risk", war1000_col, "rank_war1000_at_risk"]].round(3).to_string(index=False))
-    nfa = fxa.fxa_extree_2025_26.notna().sum()
-    print(f"\nВалютный кризис, годовая модель (деревья, AUC 0,77 вслепую): признаки 2024 → девальвация ≥ 25 % в 2025–26 "
-          f"(место среди {nfa} стран; база {fxa.fxa_base_rate.iloc[0]:.3f}) и 2025 → 2026–27 (предварительно):")
-    print(ps[["country", "fxa_extree_2025_26", "rank_fxa_extree_2025_26", "fxa_logit_2025_26", "fxa_extree_2026_27",
-              "rank_fxa_extree_2026_27", "fxa_infl_2025_26", "fxa_deval_prev_2025_26", "fxa_ca_2025_26", "fxa_debt_d2_2025_26"]].round(3).to_string(index=False))
-    print(f"\nВалютный кризис, месячный термометр (EMP-модели, AUC 0,60) в ближайшие 12 мес на дату as_of, место среди {fx.iso3.nunique()} стран; база {fx.fx_base_rate.iloc[0]:.3f}:")
+    print("Война (признаки 2024 → 2025), место среди стран под риском (без государственной войны в 2024):")
+    print(ps[["country", "state_war25_now", w25, "rank_state_war25_at_risk", w1000, "rank_state_war1000_at_risk"]].round(3).to_string(index=False))
+    nfa = fxa.fxa_extree_2026_27.notna().sum()
+    print(f"\nВалютный кризис, годовая модель: признаки 2025 → девальвация ≥ 25 % в 2026–27 (место среди {nfa} стран; "
+          f"база {fxa.fxa_base_rate.iloc[0]:.3f}); 2024 → 2025–26 для сверки с фактом 2025:")
+    print(ps[["country", "fx_regime", "fxa_logit_2026_27", "rank_fxa_logit_2026_27", "fxa_extree_2026_27", "rank_fxa_extree_2026_27",
+              "fxa_logit_2025_26", "fxa_extree_2025_26", "fxa_deval_2025", "fxa_infl_2026_27", "fxa_deval_prev_2026_27", "fxa_ca_2026_27"]].round(3).to_string(index=False))
+    print(f"\nВалютный кризис, месячный термометр (EMP) в ближайшие 12 мес на дату as_of, место среди {fx.iso3.nunique()} стран; база {fx.fx_base_rate.iloc[0]:.3f}:")
     print(ps[["country", "as_of", "fx_pressure", "rank_fx_pressure", "fx_signals", "rank_fx_signals", "fx_logit", "rank_fx_logit",
               "emp_z_max3", "deval12", "reserves_g12", "crisis_last_12m", "signals_fired"]].round(3).to_string(index=False))
     print("\nБанковский кризис (только страны BIS): признаки 2024 → 2025–26 и 2025 → 2026–27:")
@@ -249,13 +220,11 @@ def main(argv: list[str]) -> int:
     print(ps[ps.bank_jst_extree_nomoney_2025_26.notna() | ps.bank_jst_extree_nomoney_2026_27.notna()][bcols].round(3).to_string(index=False))
 
     print("\n=== Топ-15 мира ===")
-    print("Война ≥ 25 в 2025, страны под риском:")
-    print(t[t.war25_now == 0].nlargest(15, war_col)[["country", war_col, "rank_war25_at_risk"]].round(3).to_string(index=False))
-    print("\nВалютный кризис 2025–26, годовая модель (деревья):")
-    print(t.nlargest(15, "fxa_extree_2025_26")[["country", "fxa_extree_2025_26", "fxa_logit_2025_26", "fxa_extree_2026_27",
-                                                 "fxa_infl_2025_26", "fxa_deval_prev_2025_26", "fxa_ca_2025_26", "fx_pressure"]].round(3).to_string(index=False))
-    print("\nВалютный кризис 2026–27 (предварительно), годовая модель:")
-    print(t.nlargest(15, "fxa_extree_2026_27")[["country", "fxa_extree_2026_27", "fxa_extree_2025_26", "fxa_infl_2026_27", "fxa_deval_prev_2026_27"]].round(3).to_string(index=False))
+    print("Государственная война ≥ 25 в 2025, страны под риском:")
+    print(t[t.state_war25_now == 0].nlargest(15, w25)[["country", w25, "rank_state_war25_at_risk", "nonstate25_now"]].round(3).to_string(index=False))
+    print("\nВалютный кризис 2026–27, годовая модель (логит):")
+    print(t.nlargest(15, "fxa_logit_2026_27")[["country", "fxa_logit_2026_27", "fxa_extree_2026_27", "fxa_logit_2025_26", "fxa_deval_2025",
+                                                "fxa_infl_2026_27", "fxa_deval_prev_2026_27", "fxa_ca_2026_27", "fx_pressure"]].round(3).to_string(index=False))
     print("\nВалютный кризис, месячный `pressure`:")
     print(t.nlargest(15, "fx_pressure")[["country", "as_of", "fx_pressure", "fx_signals", "fx_logit", "emp_z_max3", "deval12", "crisis_last_12m"]].round(3).to_string(index=False))
     print("\nВалютный кризис, `signals`:")

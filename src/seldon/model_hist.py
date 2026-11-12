@@ -27,10 +27,10 @@
   brier_onset        средний квадрат ошибки вероятности;
   quiet10            то же на странах с тишиной ≥ 10 лет;
   95 % интервалы — блочный бутстрэп по годам (годы тасуются с возвращением, 500 раз);
-  разница с базой (`decay_cal`) — парная, на тех же выборках лет.
-База: `decay` из baseline.py и `decay_cal` — она же, но откалиброванная логит-регрессией
-на прошлых годах отдельно для стран под риском и воюющих (иначе сравнение Brier нечестное:
-сырая память — не вероятность).
+  разница с базой (`decay`) — парная, на тех же выборках лет.
+База: `decay` из baseline.py (для AUC) и `decay_cal` — она же, переведённая в вероятность
+монотонной калибровкой на прошлых годах, отдельно для стран под риском и воюющих (для
+Brier: сырая память — не вероятность, сравнивать с ней Brier нечестно).
 
 AUC (area under ROC curve) — доля пар «началась / не началась», которые модель упорядочила
 правильно: 0,5 — монетка, 1 — идеально.
@@ -49,6 +49,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.pipeline import make_pipeline
@@ -159,8 +160,10 @@ def run(f: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def add_baseline(pred: pd.DataFrame, target: str) -> pd.DataFrame:
-    """`decay` из baseline и `decay_cal` — откалиброванная на прошлых годах (отдельно для
-    стран под риском и воюющих). Первые годы, пока прошлого мало, — сырая `decay`."""
+    """`decay` из baseline и `decay_cal` — она же, переведённая в вероятность: монотонная
+    (изотоническая) калибровка на прошлых годах, отдельно для стран под риском и воюющих.
+    Порядок стран внутри года калибровка не меняет. Первые годы, пока прошлого мало, —
+    сырая `decay`."""
     base = pd.read_parquet(DATA_PROCESSED / f"baseline_predictions_{target}.parquet")[["gw", "year", "decay"]]
     pred = pred.merge(base, on=["gw", "year"], how="inner")
     pred["decay_cal"] = pred.decay
@@ -170,8 +173,8 @@ def add_baseline(pred: pd.DataFrame, target: str) -> pd.DataFrame:
             now = (pred.year == Y) & (pred.at_risk == risk)
             if now.sum() == 0 or past[target].nunique() < 2 or past[target].sum() < 5:
                 continue
-            m = LogisticRegression(C=1e6, max_iter=1000).fit(past[["decay"]], past[target])
-            pred.loc[now, "decay_cal"] = m.predict_proba(pred.loc[now, ["decay"]])[:, 1]
+            iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(past.decay, past[target])
+            pred.loc[now, "decay_cal"] = iso.predict(pred.loc[now, "decay"])
     return pred
 
 
@@ -214,7 +217,7 @@ def _stats(d: pd.DataFrame, models: list[str], target: str) -> dict:
     return out
 
 
-def summarize(pred: pd.DataFrame, models: list[str], target: str, ref: str = "decay_cal",
+def summarize(pred: pd.DataFrame, models: list[str], target: str, ref: str = "decay",
               n_boot: int = N_BOOT, seed: int = 0) -> pd.DataFrame:
     """Метрики с 95 % интервалами (блочный бутстрэп по годам) и парной разницей с `ref`."""
     onset = ONSET_OF[target]
@@ -243,7 +246,7 @@ def summarize(pred: pd.DataFrame, models: list[str], target: str, ref: str = "de
     return pd.DataFrame(rows)
 
 
-def show(summary: pd.DataFrame, ref: str = "decay_cal") -> str:
+def show(summary: pd.DataFrame, ref: str = "decay") -> str:
     lines = []
     for _, r in summary.iterrows():
         s = (f"  {r.model:28s} онсеты: AUC сквозной {r.auc_onset_pooled:.3f} [{r.auc_onset_pooled_lo:.3f}; {r.auc_onset_pooled_hi:.3f}]"

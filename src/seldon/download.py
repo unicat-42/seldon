@@ -17,6 +17,7 @@
     uv run python -m seldon.download massmob
     uv run python -m seldon.download lenta
     uv run python -m seldon.download cbr
+    uv run python -m seldon.download lv
     uv run python -m seldon.download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -27,6 +28,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import zipfile
@@ -430,7 +432,52 @@ def fetch_acled() -> None:
     print("  ACLED: токен получен, доступ работает. Выгрузка событий — следующим шагом.")
 
 
+LV_URL = "https://www.imf.org/-/media/Files/Publications/WP/2018/wp18206.ashx"
+LV_FILE = "wp18206.pdf"
+LV_SHA256 = "e2c008d0cd9e12b336441f4eb9a10d0787dcb702e466437686dc21a70216f1e9"
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch_lv() -> None:
+    """Laeven–Valencia (2018), IMF WP/18/206 — PDF статьи с таблицей дат кризисов (lv.py).
+    Сайт МВФ часто отвечает скриптам 403: тогда файл нужно скачать браузером и положить
+    по указанному пути; при повторном запуске проверяется его контрольная сумма."""
+    folder = DATA_RAW / "lv"
+    dest = folder / LV_FILE
+    print(f"[lv] → {folder}")
+    if not dest.exists():
+        try:
+            entry = download_file(LV_URL, dest)
+            write_manifest(folder, [entry])
+        except requests.RequestException as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            folder.mkdir(parents=True, exist_ok=True)
+            raise RuntimeError(
+                f"сайт МВФ не отдал файл скрипту ({code or type(e).__name__}). Скачай вручную в браузере:\n"
+                f"    {LV_URL}\n"
+                f"  (страница статьи: https://www.imf.org/en/Publications/WP/Issues/2018/09/14/Systemic-Banking-Crises-Revisited-46232)\n"
+                f"  и положи файл сюда:\n    {dest}\n"
+                f"  затем запусти `uv run python -m seldon.download lv` ещё раз — проверю контрольную сумму."
+            ) from e
+    got = sha256_of(dest)
+    if got != LV_SHA256:
+        raise RuntimeError(
+            f"контрольная сумма {dest} не совпала:\n    ожидалось {LV_SHA256}\n    получено  {got}\n"
+            "  Это другой файл или другая редакция PDF: таблица дат в lv.py разбирается по позициям\n"
+            "  колонок и на другом файле может разъехаться. Проверь, что скачана статья WP/18/206.")
+    print(f"  {LV_FILE}: sha256 совпадает ({got[:12]}…)")
+    write_manifest(folder, [{"url": LV_URL, "file": LV_FILE, "bytes": dest.stat().st_size, "sha256": got, "skipped": False}])
+
+
 FETCHERS = {
+    "lv": fetch_lv,
     "ucdp": lambda: fetch_static("ucdp"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
@@ -449,7 +496,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv"]
 
 
 def main(argv: list[str]) -> int:
