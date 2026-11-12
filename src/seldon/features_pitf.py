@@ -31,12 +31,10 @@ import numpy as np
 import pandas as pd
 
 from seldon import DATA_PROCESSED, DATA_RAW
-from seldon.countries import GW_TO_ISO3
+from seldon.countries import GW_TO_ISO3, POLITY_TO_GW  # noqa: F401 — POLITY_TO_GW реэкспорт для features_polit
 
 POLITY_FILE = DATA_RAW / "polity" / "p5v2018.xls"
 WDI_DIR = DATA_RAW / "wdi"
-# коды Polity (≈ COW) → Gleditsch–Ward
-POLITY_TO_GW = {255: 260, 679: 678, 364: 365, 342: 340, 348: 341, 525: 626, 529: 530, 818: 816}
 REGIMES = ["part_autoc", "part_dem_fact", "part_dem_nofact", "full_dem", "transition"]
 
 

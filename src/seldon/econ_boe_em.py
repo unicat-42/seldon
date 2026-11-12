@@ -40,6 +40,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -54,14 +55,32 @@ from seldon.download import GMD_VERSION
 from seldon.econ_boe import JST_R6, PREDICTORS, build_boe_dataset, load_jst
 
 REPORTS = PROJECT_ROOT / "reports"
-LAST_YEAR = 2024
 FIRST_EVAL_YEAR = 1990
-LABEL = "gmd"  # или "lv": хроника Laeven–Valencia 2018 (lv.py), 1970–2017, где есть; иначе GMD
-LAST_LABEL_YEAR = {"gmd": 2024, "lv": 2017}
+# Последний год, за который хроника банковских кризисов реально размечена. В GMD колонка
+# BankingCrisis после ~2017 заполнена нулями вместо пропусков (у развивающихся стран BIS
+# последний кризис — 2008): учиться и оценивать на этих «нулях» нельзя.
+LAST_LABEL_YEAR = {"gmd": 2017, "lv": 2017}
+JST_LAST_LABEL_YEAR = 2020  # хроника JST R6
 
 
-def eval_years() -> range:
-    return range(FIRST_EVAL_YEAR, LAST_LABEL_YEAR[LABEL] - 1)  # метки для T нужны до T+2
+@dataclass(frozen=True)
+class Config:
+    label: str = "gmd"      # или "lv": хроника Laeven–Valencia 2018 (lv.py), 1970–2017, где есть; иначе GMD
+    last_year: int = 2024   # последний год признаков в панели
+
+    @property
+    def last_label_year(self) -> int:
+        return LAST_LABEL_YEAR[self.label]
+
+    @property
+    def eval_years(self) -> range:
+        return range(FIRST_EVAL_YEAR, self.last_label_year - 1)  # метка строки T смотрит в T+2
+
+    @property
+    def suffix(self) -> str:
+        return "" if self.label == "gmd" else f"_{self.label}"
+
+
 MIN_CRISIS_TRAIN = 10
 
 # BIS: ISO2 заёмщика → ISO3; агрегаты (4T, 5A, 5R, G2, XM) пропускаем
@@ -110,16 +129,16 @@ def load_bis_credit() -> pd.DataFrame:
     return out
 
 
-def load_panel() -> pd.DataFrame:
+def load_panel(cfg: Config = Config()) -> pd.DataFrame:
     """GMD + BIS в формате JST (имена колонок как в JST R6, чтобы работал build_boe_dataset)."""
     g = pd.read_stata(DATA_RAW / "gmd" / f"GMD_{GMD_VERSION}.dta")
-    g = g[(g.year >= 1950) & (g.year <= LAST_YEAR)].copy()
+    g = g[(g.year >= 1950) & (g.year <= cfg.last_year)].copy()
     g["year"] = g.year.astype(int)
     g = g.rename(columns={"ISO3": "iso3"})
     g = g[g.iso3.isin(set(BIS_ISO.values()))]
     g = g.merge(load_bis_credit(), on=["iso3", "year"], how="left")
     crisis = g.BankingCrisis
-    if LABEL == "lv":
+    if cfg.label == "lv":
         lv = pd.read_parquet(DATA_PROCESSED / "lv_country_year.parquet")[["iso3", "year", "lv_banking"]]
         g = g.merge(lv, on=["iso3", "year"], how="left")
         crisis = g.lv_banking.where(g.lv_banking.notna(), g.BankingCrisis)
@@ -157,56 +176,72 @@ def build(panel: pd.DataFrame, feats: list[str]) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def make_models(seed: int = 0) -> dict:
+def make_models(seed: int = 0, n_estimators: int = 500) -> dict:
     return {
         "logreg": make_pipeline(StandardScaler(), LogisticRegression(C=np.inf, max_iter=5000)),
-        "extree": ExtraTreesClassifier(n_estimators=500, min_samples_leaf=5, random_state=seed, n_jobs=-1),
+        "extree": ExtraTreesClassifier(n_estimators=n_estimators, min_samples_leaf=5, random_state=seed, n_jobs=-1),
     }
 
 
-def run(panel: pd.DataFrame, jst: pd.DataFrame, feats: list[str], tag: str
+MODELS = ["base_rate", "jst_logreg", "jst_extree", "own_logreg", "own_extree", "pooled_logreg", "pooled_extree"]
+
+
+def forecast_asof(data: pd.DataFrame, jst_d: pd.DataFrame, feats: list[str], T: int,
+                  n_estimators: int = 500, return_coefs: bool = False):
+    """Прогноз с признаков года T (кризис в T+1…T+2). ВСЕ модели, включая перенос с JST,
+    учатся только на строках года ≤ T−2 — тех, чья метка к концу T уже известна.
+    (До аудита `jst_*` обучались один раз на всей JST 1870–2020 и «знали» кризисы 1990-х
+    и 2008 года, а 18 развитых стран BIS — это те же 18 стран JST.)"""
+    test = data[data.year == T].copy()
+    for m in MODELS:
+        test[m] = np.nan
+    coefs = {}
+    jst_tr = jst_d[jst_d.year <= T - 2]
+    if jst_tr.crisis.sum() >= MIN_CRISIS_TRAIN and not test.empty:
+        lo, hi = jst_tr[feats].min(), jst_tr[feats].max()
+        for k, m in make_models(n_estimators=n_estimators).items():
+            m.fit(jst_tr[feats].values, jst_tr.crisis.values)
+            test[f"jst_{k}"] = m.predict_proba(test[feats].clip(lo, hi, axis=1).values)[:, 1]
+            if k == "logreg":
+                coefs["jst"] = pd.Series(m[-1].coef_[0], index=feats)
+    train = data[data.year <= T - 2]
+    if train.crisis.sum() >= MIN_CRISIS_TRAIN and not test.empty:
+        test["base_rate"] = train.crisis.mean()
+        q1, q99 = train[feats].quantile(0.01), train[feats].quantile(0.99)
+        Xtr = train[feats].clip(q1, q99, axis=1).values
+        Xte = test[feats].clip(q1, q99, axis=1).values
+        for k, m in make_models(n_estimators=n_estimators).items():
+            m.fit(Xtr, train.crisis.values)
+            test[f"own_{k}"] = m.predict_proba(Xte)[:, 1]
+            if k == "logreg":
+                coefs["own"] = pd.Series(m[-1].coef_[0], index=feats)
+        pooled = pd.concat([jst_tr, train])
+        Xp = pooled[feats].clip(q1, q99, axis=1).values
+        for k, m in make_models(n_estimators=n_estimators).items():
+            m.fit(Xp, pooled.crisis.values)
+            test[f"pooled_{k}"] = m.predict_proba(Xte)[:, 1]
+    return (test, coefs) if return_coefs else test
+
+
+def run(panel: pd.DataFrame, jst: pd.DataFrame, feats: list[str], tag: str, cfg: Config
         ) -> tuple[pd.DataFrame, pd.DataFrame]:
     data = build(panel, feats)
     jst_d = build_boe_dataset(jst, predictors=feats)
-    preds, coefs = [], []
-    # перенос: обучено на JST один раз
-    jst_models = {k: m.fit(jst_d[feats].values, jst_d.crisis.values) for k, m in make_models().items()}
-    coefs.append(pd.Series(jst_models["logreg"][-1].coef_[0], index=feats, name=f"{tag}_jst_logreg"))
-    lo, hi = jst_d[feats].min(), jst_d[feats].max()
-    own_coefs = []
-    for T in eval_years():
-        test = data[data.year == T].copy()
+    preds, jst_coefs, own_coefs = [], [], []
+    for T in cfg.eval_years:
+        test, c = forecast_asof(data, jst_d, feats, T, return_coefs=True)
         if test.empty:
             continue
-        test["base_rate"] = np.nan
-        Xte_j = test[feats].clip(lo, hi, axis=1).values
-        for k, m in jst_models.items():
-            test[f"jst_{k}"] = m.predict_proba(Xte_j)[:, 1]
-        train = data[data.year <= T - 2]
-        if train.crisis.sum() >= MIN_CRISIS_TRAIN:
-            test["base_rate"] = train.crisis.mean()
-            q1, q99 = train[feats].quantile(0.01), train[feats].quantile(0.99)
-            Xtr = train[feats].clip(q1, q99, axis=1).values
-            Xte = test[feats].clip(q1, q99, axis=1).values
-            for k, m in make_models().items():
-                m.fit(Xtr, train.crisis.values)
-                test[f"own_{k}"] = m.predict_proba(Xte)[:, 1]
-                if k == "logreg":
-                    own_coefs.append(pd.Series(m[-1].coef_[0], index=feats, name=T))
-            pooled = pd.concat([jst_d[jst_d.year <= T - 2], train])
-            Xp = pooled[feats].clip(q1, q99, axis=1).values
-            for k, m in make_models().items():
-                m.fit(Xp, pooled.crisis.values)
-                test[f"pooled_{k}"] = m.predict_proba(Xte)[:, 1]
         preds.append(test)
+        if "jst" in c:
+            jst_coefs.append(c["jst"].rename(T))
+        if "own" in c:
+            own_coefs.append(c["own"].rename(T))
     out = pd.concat(preds, ignore_index=True)
     out["feature_set"] = tag
-    if own_coefs:
-        coefs.append(pd.DataFrame(own_coefs).mean().rename(f"{tag}_own_logreg_mean"))
+    coefs = [pd.DataFrame(x).mean().rename(f"{tag}_{name}_logreg_mean")
+             for name, x in (("jst", jst_coefs), ("own", own_coefs)) if x]
     return out, pd.concat(coefs, axis=1)
-
-
-MODELS = ["base_rate", "jst_logreg", "jst_extree", "own_logreg", "own_extree", "pooled_logreg", "pooled_extree"]
 
 
 def _auc(y, p):
@@ -216,7 +251,10 @@ def _auc(y, p):
 def metrics(pred: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for tag, d in pred.groupby("feature_set"):
-        for scope, sub in [("all", d), ("em", d[d.em]), ("advanced", d[~d.em])]:
+        jst_c = d.iso.isin(JST_ISO)
+        # non_jst_adv / em — честный перенос: стран нет в обучающей выборке JST
+        for scope, sub in [("all", d), ("em", d[d.em]), ("advanced", d[~d.em]),
+                           ("jst_adv", d[jst_c]), ("non_jst_adv", d[~d.em & ~jst_c]), ("non_jst", d[~jst_c])]:
             for m in MODELS:
                 s = sub[sub[m].notna()]
                 if s.empty:
@@ -274,11 +312,9 @@ def coverage(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
-    global LABEL
-    if argv:
-        LABEL = argv[0]
-    sfx = "" if LABEL == "gmd" else f"_{LABEL}"
-    panel = load_panel()
+    cfg = Config(label=argv[0]) if argv else Config()
+    sfx = cfg.suffix
+    panel = load_panel(cfg)
     panel.to_parquet(DATA_PROCESSED / f"boe_em_panel{sfx}.parquet", index=False)
     cov = coverage(panel)
     cov.to_csv(REPORTS / f"boe_em_coverage{sfx}.csv", index=False)
@@ -291,7 +327,7 @@ def main(argv: list[str]) -> int:
         print(f"\n[{tag}] {len(feats)} признаков: {len(d)} страна-лет, {d.iso.nunique()} стран "
               f"({d[d.em].iso.nunique()} развивающихся), {int(d.crisis.sum())} предкризисных лет "
               f"({int(d[d.em].crisis.sum())} у развивающихся)")
-        p, c = run(panel, jst, feats, tag)
+        p, c = run(panel, jst, feats, tag, cfg)
         preds.append(p)
         coefs.append(c)
     pred = pd.concat(preds, ignore_index=True)
@@ -300,7 +336,7 @@ def main(argv: list[str]) -> int:
 
     met = metrics(pred)
     met.to_csv(REPORTS / f"boe_em_metrics{sfx}.csv", index=False)
-    print(f"\nМетрики вслепую {FIRST_EVAL_YEAR}–{LAST_LABEL_YEAR[LABEL] - 2}, метка {LABEL}, целевая: банковский кризис в t+1 или t+2:")
+    print(f"\nМетрики вслепую {FIRST_EVAL_YEAR}–{cfg.last_label_year - 2}, метка {cfg.label}, целевая: банковский кризис в t+1 или t+2:")
     print(met.round(3).to_string(index=False))
     metrics_by_year(pred).to_csv(REPORTS / f"boe_em_metrics_by_year{sfx}.csv", index=False)
 

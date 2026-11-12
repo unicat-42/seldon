@@ -1,21 +1,26 @@
 """Признаки истории конфликтов на годовой панели — аналог модели `hist` conflictforecast.
 
 Запуск:
-    uv run python -m seldon.features
+    uv run python -m seldon.features [целевая]     # по умолчанию state_war25
 
-Читает data/processed/panel_country_year.parquet, пишет features_country_year.parquet.
+Читает data/processed/panel_country_year.parquet, пишет features_country_year.parquet
+(для целевой не по умолчанию — features_country_year_<целевая>.parquet).
 Все признаки на строке (страна, год T) считаются ТОЛЬКО по данным до года T включительно —
 их можно использовать для прогноза на T+1 без утечки будущего.
 
-Признаки (TARGET = war25 — «страна воюет», см. panel.py):
-    war_now            war25 в году T (0/1)
-    years_since_war    лет с последнего года с war25 == 1 (0 — воюет сейчас; если не воевала
+Признаки (история считается по целевой, по умолчанию state_war25 — см. panel.py):
+    war_now            целевая в году T (0/1)
+    years_since_war    лет с последнего года с целевой == 1 (0 — воюет сейчас; если не воевала
                        с 1989 — лет с начала панели, помечено флагом never_war)
     never_war          1, если с 1989 (или с появления страны) не воевала ни разу
-    log_deaths_1/5/10  log(1 + погибшие за последний год / 5 лет / 10 лет), погибшие —
-                       deaths_best + deaths_party (территория + участие)
+    log_deaths_1/5/10  log(1 + погибшие за последний год / 5 лет / 10 лет). Погибшие —
+                       `deaths_war`: государственный конфликт на своей территории плюс у
+                       соседей, где страна — сторона. Каждое событие считается один раз
+                       (до аудита складывались «территория» и «участие», и свои войны
+                       Украины, Грузии, Азербайджана считались дважды). Для старых
+                       целевых (war25…) — как раньше, deaths_best + deaths_party
     war_years_10       сколько из последних 10 лет страна воевала
-    decay_1/3          затухающая память о war25 с полураспадом 1 и 3 года (как в baseline)
+    decay_1/3          затухающая память о целевой с полураспадом 1 и 3 года (как в baseline)
     nb_war_share       доля соседей, воюющих в году T (нет соседей → 0)
     nb_war_any         1, если хотя бы один сосед воюет
     nb_onset_any       1, если у кого-то из соседей в году T началась война
@@ -24,46 +29,52 @@
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pandas as pd
 
 from seldon import DATA_PROCESSED
-from seldon.panel import load_neighbors
+from seldon.panel import ONSET_OF, load_neighbors
 
-TARGET = "war25"
-DEATHS = ["deaths_best", "deaths_party"]
+DEFAULT_TARGET = "state_war25"
+OLD_TARGETS = {"conflict25", "war25", "war1000"}  # история «как до аудита»: с двойным счётом погибших
+
+
+def features_file(target: str = DEFAULT_TARGET) -> str:
+    return "features_country_year.parquet" if target == DEFAULT_TARGET else f"features_country_year_{target}.parquet"
 
 
 def _rolling_sum(s: pd.Series, w: int) -> pd.Series:
     return s.rolling(w, min_periods=1).sum()
 
 
-def own_history(panel: pd.DataFrame) -> pd.DataFrame:
+def own_history(panel: pd.DataFrame, target: str) -> pd.DataFrame:
     p = panel.sort_values(["gw", "year"]).copy()
-    p["deaths_any"] = p[DEATHS].sum(axis=1)
+    p["deaths_any"] = (p.deaths_best + p.deaths_party) if target in OLD_TARGETS else p.deaths_war
     g = p.groupby("gw")
-    p["war_now"] = p[TARGET].astype("int8")
+    p["war_now"] = p[target].astype("int8")
     # лет с последней войны: номер года минус последний год с войной (forward fill)
-    last_war_year = p["year"].where(p[TARGET] == 1)
+    last_war_year = p["year"].where(p[target] == 1)
     p["last_war_year"] = last_war_year.groupby(p["gw"]).ffill()
     first_year = g["year"].transform("min")
     p["never_war"] = p["last_war_year"].isna().astype("int8")
     p["years_since_war"] = (p["year"] - p["last_war_year"].fillna(first_year - 1)).astype(int)
     for w in (1, 5, 10):
         p[f"log_deaths_{w}"] = np.log1p(g["deaths_any"].transform(lambda s: _rolling_sum(s, w)))
-    p["war_years_10"] = g[TARGET].transform(lambda s: _rolling_sum(s, 10)).astype(int)
+    p["war_years_10"] = g[target].transform(lambda s: _rolling_sum(s, 10)).astype(int)
     for h in (1, 3):
         alpha = 1 - 0.5 ** (1 / h)
-        p[f"decay_{h}"] = g[TARGET].transform(lambda s: s.ewm(alpha=alpha, adjust=False).mean())
+        p[f"decay_{h}"] = g[target].transform(lambda s: s.ewm(alpha=alpha, adjust=False).mean())
     return p.drop(columns=["last_war_year"])
 
 
-def neighbor_features(p: pd.DataFrame) -> pd.DataFrame:
+def neighbor_features(p: pd.DataFrame, neighbors: set, target: str) -> pd.DataFrame:
     """Для каждой (страна, год): что происходит у соседей в этом же году."""
-    nb = pd.DataFrame(list(load_neighbors()), columns=["gw", "nb", "year"])
-    onset_col = "onset_war25" if TARGET == "war25" else "onset25"
-    state = p[["gw", "year", TARGET, onset_col, "deaths_any"]].rename(
-        columns={"gw": "nb", TARGET: "nb_war", onset_col: "nb_onset", "deaths_any": "nb_deaths"}
+    nb = pd.DataFrame(list(neighbors), columns=["gw", "nb", "year"])
+    onset_col = ONSET_OF[target]
+    state = p[["gw", "year", target, onset_col, "deaths_any"]].rename(
+        columns={"gw": "nb", target: "nb_war", onset_col: "nb_onset", "deaths_any": "nb_deaths"}
     )
     nb = nb.merge(state, on=["nb", "year"], how="inner")  # соседи, которых нет в панели, выпадают
     agg = nb.groupby(["gw", "year"]).agg(
@@ -85,19 +96,27 @@ FEATURES = [
 ]
 
 
-def build() -> pd.DataFrame:
-    panel = pd.read_parquet(DATA_PROCESSED / "panel_country_year.parquet")
-    p = neighbor_features(own_history(panel))
-    keep = ["gw", "country", "year", "conflict25", "onset25", "war25", "onset_war25", "war1000", "onset_war1000", *FEATURES]
+def build_features(panel: pd.DataFrame, neighbors: set, target: str = DEFAULT_TARGET) -> pd.DataFrame:
+    """Признаки истории. Чистая функция: строка года T зависит только от панели ≤ T."""
+    p = neighbor_features(own_history(panel, target), neighbors, target)
+    targets = [c for pair in ONSET_OF.items() for c in pair]
+    keep = ["gw", "country", "year", *targets, *FEATURES]
     return p[keep].sort_values(["gw", "year"]).reset_index(drop=True)
 
 
-def main() -> None:
-    f = build()
-    f.to_parquet(DATA_PROCESSED / "features_country_year.parquet", index=False)
-    print(f"признаки: {len(f)} строк × {len(FEATURES)} признаков → data/processed/features_country_year.parquet")
+def build(target: str = DEFAULT_TARGET) -> pd.DataFrame:
+    panel = pd.read_parquet(DATA_PROCESSED / "panel_country_year.parquet")
+    return build_features(panel, load_neighbors(), target)
+
+
+def main(argv: list[str]) -> int:
+    target = argv[0] if argv else DEFAULT_TARGET
+    f = build(target)
+    f.to_parquet(DATA_PROCESSED / features_file(target), index=False)
+    print(f"признаки ({target}): {len(f)} строк × {len(FEATURES)} признаков → data/processed/{features_file(target)}")
     print(f[FEATURES].describe().T[["mean", "min", "max"]].round(3).to_string())
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

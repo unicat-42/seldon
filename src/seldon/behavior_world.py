@@ -36,18 +36,14 @@ import numpy as np
 import pandas as pd
 import requests
 
+from seldon.countries import ISO3_TO_FIPS
 from seldon import DATA_PROCESSED, DATA_RAW, PROJECT_ROOT
 
 REPORTS = PROJECT_ROOT / "reports"
 GDELT_DIR = DATA_RAW / "gdelt"
 WAVE_SHARE = 0.10  # квартал/месяц считаем «мировой волной», если в кризисе ≥ 10 % стран с данными
 
-# ISO3 → FIPS (так GDELT кодирует страну источника)
-FIPS = {"TUR": "TU", "ARG": "AR", "EGY": "EG", "GHA": "GH", "NGA": "NI", "PAK": "PK", "LKA": "CE", "LBN": "LE",
-        "KAZ": "KZ", "RUS": "RS", "UKR": "UP", "BRA": "BR", "COL": "CO", "ZAF": "SF", "MEX": "MX", "IDN": "ID",
-        "KOR": "KS", "GBR": "UK", "JPN": "JA", "HUN": "HU", "CHL": "CI", "BLR": "BO", "UZB": "UZ", "ZMB": "ZA",
-        "ETH": "ET", "AGO": "AO", "KGZ": "KG", "GEO": "GG", "VEN": "VE", "ZWE": "ZI", "MWI": "MI", "SDN": "SU",
-        "IRQ": "IZ", "LAO": "LA", "SLE": "SL", "TJK": "TI", "NZL": "NZ", "BWA": "BC", "SUR": "NS"}
+FIPS = ISO3_TO_FIPS  # ISO3 → FIPS (GDELT), таблица в countries.py
 GDELT_QUERY = '("exchange rate" OR devaluation OR depreciation OR "currency crisis" OR "dollar rate" OR "capital controls")'
 GDELT_FROM, GDELT_TO = 2017, 2025
 # тон отключён: GDELT считает каждый запрос 30–60 с, с тоном 39 стран — больше двух часов

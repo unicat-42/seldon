@@ -212,15 +212,24 @@ def cross_validate(data: pd.DataFrame, predictors: list[str], n_rep: int = 10, n
     return pd.DataFrame(rows)
 
 
+def next_year_training_window(data: pd.DataFrame, T: int) -> pd.DataFrame:
+    """Строки, на которых можно учиться, чтобы в конце года T+1 предсказать с его признаков:
+    метка строки t смотрит в t+1 и t+2, к концу T+1 она известна только для t ≤ T−1.
+    (До аудита бралось t ≤ T: строка T уже «знала», случится ли кризис в T+2.)"""
+    return data[data.year <= T - 1]
+
+
 def forecast(data: pd.DataFrame, predictors: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Их схема: учимся на year ≤ T, тестируем на year > T (все будущие годы).
-    Наша: тестируем только year == T+1, предсказания склеиваем."""
+    """Схема авторов (для сверки со статьёй, с перекрытием окна метки): учимся на year ≤ T,
+    тестируем на всех year > T. Наша, без утечки: учимся на year ≤ T−1, предсказываем
+    только year == T+1, предсказания склеиваем."""
     years = np.sort(data.year.unique())
     cum = data.groupby("year").crisis.sum().cumsum()
     splits = [T for T in years[:-1] if cum.loc[T] >= MIN_CRISIS_TRAIN]
     by_year, next_rows, coefs = [], [], []
     for T in splits:
         tr = data[data.year <= T]
+        tr_next = next_year_training_window(data, T)
         te_all = data[data.year > T]
         te_next = data[data.year == T + 1]
         for name, m in make_models(0).items():
@@ -230,11 +239,12 @@ def forecast(data: pd.DataFrame, predictors: list[str]) -> tuple[pd.DataFrame, p
                    "crises_test": int(te_all.crisis.sum())}
             row["auc_all_future"] = roc_auc_score(te_all.crisis, p_all) if te_all.crisis.nunique() == 2 else np.nan
             by_year.append(row)
-            if len(te_next):
-                p = m.predict_proba(te_next[predictors].values)[:, 1]
-                next_rows.append(te_next[["iso", "year", "crisis"]].assign(model=name, p=p, train_end=T))
             if name == "logreg":
                 coefs.append(pd.Series(m[-1].coef_[0], index=predictors, name=T))
+            if len(te_next) and tr_next.crisis.nunique() == 2:
+                m_next = make_models(0)[name].fit(tr_next[predictors].values, tr_next.crisis.values)
+                p = m_next.predict_proba(te_next[predictors].values)[:, 1]
+                next_rows.append(te_next[["iso", "year", "crisis"]].assign(model=name, p=p, train_end=T - 1))
     nxt = pd.concat(next_rows)
     summary = []
     for name, g in nxt.groupby("model"):

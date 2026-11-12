@@ -25,3 +25,12 @@ dependencies = [
     "tqdm>=4.70.1",
     "xlrd>=2.0.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

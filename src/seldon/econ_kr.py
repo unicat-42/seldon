@@ -46,6 +46,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -55,7 +56,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, DATA_RAW, PROJECT_ROOT
-from seldon.countries import ISO3_TO_SHORT, POST_SOVIET_ISO3
+from seldon.countries import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3, shared_currency_table
 
 REPORTS = PROJECT_ROOT / "reports"
 IMF = DATA_RAW / "imf"
@@ -112,7 +113,7 @@ def read_imf(name: str) -> pd.DataFrame:
     return d.rename(columns={"COUNTRY": "iso3", "OBS_VALUE": "value"})
 
 
-def load_panel() -> pd.DataFrame:
+def load_panel(last_month: str = LAST_MONTH) -> pd.DataFrame:
     er = read_imf("exchange_rates")
     er = er[er.TYPE_OF_TRANSFORMATION == "EOP_RT"].pivot_table(
         index=["iso3", "month"], values="value", aggfunc="first").rename(columns={"value": "fx"})
@@ -137,7 +138,7 @@ def load_panel() -> pd.DataFrame:
 
     p = er.join(il, how="outer").join(cpi, how="outer").join(ir, how="outer") \
         .join(bm, how="outer").join(xg, how="outer").reset_index()
-    p = p[(p.month >= FIRST_MONTH) & (p.month <= LAST_MONTH)]
+    p = p[(p.month >= FIRST_MONTH) & (p.month <= last_month)]
     # полная сетка месяцев внутри страны, чтобы лаги считались по календарю, а не по строкам
     full = p.groupby("iso3").month.agg(["min", "max"])
     idx = pd.MultiIndex.from_tuples(
@@ -151,36 +152,41 @@ def load_panel() -> pd.DataFrame:
     return p.sort_values(["iso3", "month"]).reset_index(drop=True)
 
 
-def fill_cpi(p: pd.DataFrame) -> pd.DataFrame:
+def load_annual_cpi() -> pd.DataFrame:
+    """Годовой ИПЦ Всемирного банка: iso3, year, value."""
+    return pd.read_csv(DATA_RAW / "wdi" / "cpi_annual.csv")[["iso3", "year", "value"]]
+
+
+def fill_cpi(p: pd.DataFrame, annual: pd.DataFrame) -> pd.DataFrame:
     """Дыры в месячном ИПЦ МВФ затыкаем годовым ИПЦ Всемирного банка — без утечки будущего.
 
-    Интерполировать между годовыми средними нельзя: среднее за год известно только
-    в конце года, и инфляция после девальвации «просочилась» бы в признаки до кризиса.
-    Поэтому для месяца m года t берём экстраполяцию из последнего завершённого года:
-        cpi(m) = A(t−1) · (A(t−1)/A(t−2))^((m + 5,5)/12),
-    где A(y) — годовое среднее (относим к середине года). Это честный прогноз на момент m.
-    Уровень подгоняем к первому месячному наблюдению МВФ, чтобы на стыке не было скачка.
-    Флаг `cpi_filled` отмечает заполненные месяцы."""
-    p = p.copy()
-    a = pd.read_csv(DATA_RAW / "wdi" / "cpi_annual.csv")[["iso3", "year", "value"]]
-    a = a[a.value > 0].sort_values(["iso3", "year"])
+    Индекс цен собирается цепочкой из месячных ТЕМПОВ, а не уровней:
+      - если ИПЦ МВФ есть и в этом месяце, и в прошлом — темп из МВФ;
+      - иначе для месяца года t — темп последнего завершённого года:
+        ln(A(t−1)/A(t−2)) / 12, где A(y) — годовое среднее ВБ (известно к началу t).
+    Уровень индекса произвольный (везде используются только темпы и отношение к своему
+    тренду). До аудита уровень заполнения подгонялся к первому БУДУЩЕМУ наблюдению МВФ
+    (утечка), а темп внутри года был занижен в 12 раз и давал скачок в январе.
+    Флаг `cpi_filled` отмечает месяцы, где темп взят из годовых данных."""
+    p = p.sort_values(["iso3", "month"]).reset_index(drop=True)
+    a = annual[annual.value > 0].sort_values(["iso3", "year"]).copy()
     a["prev"] = a.groupby("iso3").value.shift(1)
     a["prev_year"] = a.groupby("iso3").year.shift(1)
     a = a[a.prev_year == a.year - 1]  # нужны два подряд идущих года
-    a["g"] = (a.value / a.prev) ** (1 / 12)  # месячный темп последнего завершённого года
-    a = a.rename(columns={"value": "A"})[["iso3", "year", "A", "g"]]
+    a["g_annual"] = np.log(a.value / a.prev) / 12  # месячный лог-темп последнего завершённого года
     a["year"] = a.year + 1  # применяем к следующему году
     p["year"] = p.month.dt.year
-    p = p.merge(a, on=["iso3", "year"], how="left")
-    m = p.month.dt.month
-    fill = p.A * p.g ** ((m + 5.5) / 12)
-    # подгонка уровня: отношение месячного ИПЦ МВФ к заполнению в первом месяце, где есть оба
-    both = p[p.cpi.notna() & fill.notna()]
-    factor = (both.cpi / fill[both.index]).groupby(both.iso3).first()
-    fill = fill * p.iso3.map(factor).fillna(1.0)
-    p["cpi_filled"] = p.cpi.isna() & fill.notna()
-    p["cpi"] = p.cpi.fillna(fill)
-    return p.drop(columns=["year", "A", "g"])
+    p = p.merge(a[["iso3", "year", "g_annual"]], on=["iso3", "year"], how="left")
+    same = p.iso3 == p.iso3.shift(1)
+    g_imf = np.log(p.cpi / p.cpi.shift(1)).where(same)
+    g = g_imf.fillna(p.g_annual)
+    p["cpi_filled"] = g_imf.isna() & p.g_annual.notna()
+    # цепочка: отрезки подряд идущих известных темпов; месяц перед отрезком — база (уровень 1)
+    seg = g.isna().groupby(p.iso3).cumsum()
+    level = np.exp(g.fillna(0.0).groupby([p.iso3, seg]).cumsum())
+    isolated = g.isna() & (g.shift(-1).isna() | (p.iso3 != p.iso3.shift(-1)))
+    p["cpi"] = level.where(~isolated)
+    return p.drop(columns=["year", "g_annual"])
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +198,7 @@ def _pct_change(s: pd.Series, k: int) -> pd.Series:
     return s / s.shift(k) - 1
 
 
-def add_emp_and_crises(p: pd.DataFrame) -> pd.DataFrame:
+def add_emp_and_crises(p: pd.DataFrame, drop_shared: bool = True) -> pd.DataFrame:
     p = p.copy()
     gb = p.groupby("iso3")
     p["de"] = gb.fx.transform(lambda s: _pct_change(s, 1))
@@ -206,25 +212,53 @@ def add_emp_and_crises(p: pd.DataFrame) -> pd.DataFrame:
     p["dr"] = p.dr.clip(-0.9, 2.0)
     p["de"] = p.de.clip(-0.9, 5.0)
 
-    def sigmas(g: pd.DataFrame) -> pd.Series:
-        calm = g[~g.hyper]
-        return pd.Series({"sd_e": _robust_sd(calm.de), "sd_r": _robust_sd(calm.dr),
-                          "n_calm": calm.de.notna().sum()})
-
-    sd = p.groupby("iso3").apply(sigmas, include_groups=False)
-    p = p.merge(sd, left_on="iso3", right_index=True, how="left")
-    w = (p.sd_e / p.sd_r).replace([np.inf, -np.inf], np.nan)
-    # если резервов нет — EMP только по курсу
-    p["emp"] = np.where(p.dr.notna(), p.de - w * p.dr, p.de)
-    p.loc[p.de.isna(), "emp"] = np.nan
-    calm = p[~p.hyper]
-    stats = calm.groupby("iso3").emp.agg(emp_mean="median", emp_sd=_robust_sd)
-    p = p.merge(stats, left_on="iso3", right_index=True, how="left")
+    # Все параметры EMP — расширяющимся окном: в месяце m используются только месяцы ≤ m.
+    # (До аудита σ, медиана и число спокойных месяцев считались один раз по всей выборке,
+    # так что индекс 1998 года «знал» норму 2020-х.)
+    p["own_currency"] = True
+    if drop_shared:
+        reg = shared_currency_table(int(p.month.dt.year.min()), int(p.month.dt.year.max()))
+        yr = pd.DataFrame({"iso3": p.iso3, "year": p.month.dt.year}).merge(reg, on=["iso3", "year"], how="left")
+        p["fx_regime"] = yr.fx_regime.to_numpy()
+        p["own_currency"] = p.fx_regime.isna()
+    parts = []
+    for _, g in p.groupby("iso3", sort=False):
+        de, dr, calm = g.de.to_numpy(), g.dr.to_numpy(), ~g.hyper.to_numpy()
+        _, sd_e, n_calm = _expanding_robust(de, calm)
+        _, sd_r, _ = _expanding_robust(dr, calm)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            w = sd_e / sd_r
+        w[~np.isfinite(w)] = np.nan
+        emp = np.where(np.isnan(dr), de, de - w * dr)  # если резервов нет — EMP только по курсу
+        emp[np.isnan(de)] = np.nan
+        emp_mean, emp_sd, _ = _expanding_robust(emp, calm)
+        parts.append(pd.DataFrame({"sd_e": sd_e, "sd_r": sd_r, "n_calm": n_calm, "emp": emp,
+                                   "emp_mean": emp_mean, "emp_sd": emp_sd}, index=g.index))
+    p = p.join(pd.concat(parts))
     p["emp_z"] = (p.emp - p.emp_mean) / p.emp_sd
-    spike = (p.emp_z > EMP_SIGMA) & (p.emp >= EMP_FLOOR) & (p.n_calm >= MIN_HISTORY) & ~p.hyper
-    p["crisis"] = _onsets(spike, p.iso3)
-    p["deval15"] = _onsets((p.de >= DEVAL15) & ~p.hyper, p.iso3)
+    spike = (p.emp_z > EMP_SIGMA) & (p.emp >= EMP_FLOOR) & (p.n_calm >= MIN_HISTORY) & ~p.hyper & p.own_currency
+    p["spike_crisis"] = spike.fillna(False)
+    p["crisis"], p["quiet_crisis"] = onsets(p.spike_crisis, p.iso3)
+    p["spike_deval15"] = ((p.de >= DEVAL15) & ~p.hyper & p.own_currency).fillna(False)
+    p["deval15"], p["quiet_deval15"] = onsets(p.spike_deval15, p.iso3)
     return p
+
+
+def _expanding_robust(x: np.ndarray, ok: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Медиана, устойчивая σ и число наблюдений по значениям x[s], s ≤ t (только где ok и не NaN)."""
+    n = len(x)
+    med, sd, cnt = np.full(n, np.nan), np.full(n, np.nan), np.zeros(n)
+    buf, k = np.empty(n), 0
+    cur_med = cur_sd = np.nan
+    for t in range(n):
+        if ok[t] and not np.isnan(x[t]):
+            buf[k] = x[t]
+            k += 1
+            if k >= 12:
+                cur_med = np.median(buf[:k])
+                cur_sd = max(np.median(np.abs(buf[:k] - cur_med)) * 1.4826, 1e-4)
+        med[t], sd[t], cnt[t] = cur_med, cur_sd, k
+    return med, sd, cnt
 
 
 def _robust_sd(s: pd.Series) -> float:
@@ -238,20 +272,25 @@ def _robust_sd(s: pd.Series) -> float:
     return max(mad, 1e-4)  # фиксированный курс: MAD = 0, тогда любой сдвиг — всплеск
 
 
-def _onsets(spike: pd.Series, iso3: pd.Series) -> pd.Series:
-    """Первый всплеск после ≥ POST_CRISIS_DROP спокойных месяцев = кризис."""
+def onsets(spike: pd.Series, iso3: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """Первый всплеск после ≥ POST_CRISIS_DROP спокойных месяцев = кризис.
+    Возвращает (кризис 0/1, `quiet` — месяцев с последнего всплеска, NaN если не было).
+    Повторный всплеск продлевает «тишину»; по `quiet` строится `evaluable`, чтобы оценка
+    и блокировка считались от одного и того же — от последнего ВСПЛЕСКА."""
     out = np.zeros(len(spike), dtype=int)
+    quiet = np.full(len(spike), np.nan)
     last = {}
     for i, (c, s) in enumerate(zip(iso3.to_numpy(), spike.to_numpy())):
-        if s and (c not in last or i - last[c] > POST_CRISIS_DROP):
-            out[i] = 1
+        if s:
+            if c not in last or i - last[c] > POST_CRISIS_DROP:
+                out[i] = 1
             last[c] = i
-        elif s:
-            last[c] = i  # продолжение того же кризиса продлевает «тишину»
-    return pd.Series(out, index=spike.index)
+        if c in last:
+            quiet[i] = i - last[c]
+    return pd.Series(out, index=spike.index), pd.Series(quiet, index=spike.index)
 
 
-def add_indicators(p: pd.DataFrame) -> pd.DataFrame:
+def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None) -> pd.DataFrame:
     p = p.copy()
     us = p[p.iso3 == "USA"].set_index("month")[["cpi", "rate"]].rename(
         columns={"cpi": "cpi_us", "rate": "rate_us"})
@@ -275,26 +314,39 @@ def add_indicators(p: pd.DataFrame) -> pd.DataFrame:
     x12 = gb.exports.transform(lambda s: s.rolling(12, min_periods=12).sum())
     p["exports_g12"] = (x12 / x12.shift(12) - 1).where(p.iso3 == p.iso3.shift(12)).clip(-0.9, 3)
     # всё ниже известно на момент прогноза: кризисы прошлых месяцев и собственный EMP
-    world = p.groupby("month").agg(n=("crisis", "count"), k=("crisis", "sum"))
+    live = p[p.own_currency & p.de.notna()]
+    world = live.groupby("month").agg(n=("crisis", "count"), k=("crisis", "sum"))
     share = (world.k / world.n).rolling(3, min_periods=1).sum()
     p["world_crisis3"] = p.month.map(share)
     p["emp_z_max3"] = gb.emp_z.transform(lambda s: s.rolling(3, min_periods=1).max()).clip(-5, 50)
-    return add_war(p)
+    if war is None:
+        war = load_war()
+    return p.merge(war[["iso3", "month", *WAR_COLS]], on=["iso3", "month"], how="left")
 
 
-def add_war(p: pd.DataFrame) -> pd.DataFrame:
-    """Война по месяцам из блока войн (panel.py → panel_country_month.parquet, коды GW)."""
-    from seldon.countries import GW_TO_ISO3
-    w = pd.read_parquet(DATA_PROCESSED / "panel_country_month.parquet",
-                        columns=["gw", "year", "month", "war25", "war1000", "onset_war25"])
-    w["iso3"] = w.gw.map(GW_TO_ISO3)
+WAR_COLS = ["war25_now", "war1000_now", "war_onset12"]
+
+
+def war_features(month_panel: pd.DataFrame, gw_to_iso3: dict | None = None) -> pd.DataFrame:
+    """Война по месяцам из блока войн (panel.py, коды GW) → iso3, month и три признака.
+    Всё на строке месяца m посчитано по событиям ≤ m (см. panel.py):
+      war25_now    — государственная война: ≥ 25 погибших за месяц у себя или у соседа,
+                     где страна — сторона (`state_war25`);
+      war1000_now  — ≥ 1000 погибших за последние 12 месяцев (скользящая сумма);
+      war_onset12  — начало войны (после ≥ 12 тихих месяцев) за последние 12 мес."""
+    w = month_panel[["gw", "year", "month", "state_war25", "state_war1000_12m", "onset_state_war25"]].copy()
+    w["iso3"] = w.gw.map(GW_TO_ISO3 if gw_to_iso3 is None else gw_to_iso3)
     w = w[w.iso3.notna()].copy()
     w["month"] = pd.PeriodIndex(pd.to_datetime(dict(year=w.year, month=w.month, day=1)), freq="M")
-    w = w.sort_values(["iso3", "month"])
-    w["war_onset12"] = w.groupby("iso3").onset_war25.transform(lambda s: s.rolling(12, min_periods=1).max())
-    w = w.drop_duplicates(["iso3", "month"])  # 340/345 → SRB
-    w = w.rename(columns={"war25": "war25_now", "war1000": "war1000_now"})
-    return p.merge(w[["iso3", "month", "war25_now", "war1000_now", "war_onset12"]], on=["iso3", "month"], how="left")
+    w = w.sort_values(["iso3", "gw", "month"])
+    w["war_onset12"] = w.groupby("gw").onset_state_war25.transform(lambda s: s.rolling(12, min_periods=1).max())
+    w = w.drop_duplicates(["iso3", "month"], keep="first")  # 340/345 → SRB
+    w = w.rename(columns={"state_war25": "war25_now", "state_war1000_12m": "war1000_now"})
+    return w[["iso3", "month", *WAR_COLS]].reset_index(drop=True)
+
+
+def load_war() -> pd.DataFrame:
+    return war_features(pd.read_parquet(DATA_PROCESSED / "panel_country_month.parquet"))
 
 
 def add_target(p: pd.DataFrame, target: str = "crisis") -> pd.DataFrame:
@@ -303,10 +355,26 @@ def add_target(p: pd.DataFrame, target: str = "crisis") -> pd.DataFrame:
     fwd = sum(gb.shift(-k) for k in range(1, H + 1))
     p["y"] = (fwd > 0).astype(float)
     p.loc[fwd.isna(), "y"] = np.nan  # конец ряда: окно не полностью известно
-    # 12 месяцев после кризиса (включая его месяц) не оцениваем
-    recent = sum(gb.shift(k).fillna(0) for k in range(0, POST_CRISIS_DROP))
-    p["evaluable"] = (recent == 0) & p.y.notna()
+    # Строку оцениваем, только если кризис в её окне МОЖЕТ быть засчитан: с последнего
+    # всплеска прошло ≥ 12 месяцев (то же правило, что в `onsets`), валюта своя, а для EMP
+    # ещё и накоплена история для σ. До аудита «тишина» считалась от начала кризиса, и
+    # строки посреди затяжного кризиса возвращались в оценку с принудительным y = 0.
+    quiet = p[f"quiet_{target}"]
+    ok = (quiet.isna() | (quiet >= POST_CRISIS_DROP)) & p.own_currency & p.de.notna()
+    if target == "crisis":
+        ok &= p.n_calm >= MIN_HISTORY
+    p["evaluable"] = ok & p.y.notna()
     return p
+
+
+def build_panel(raw: pd.DataFrame, annual_cpi: pd.DataFrame, war: pd.DataFrame | None = None,
+                target: str = "crisis", drop_shared: bool = True) -> pd.DataFrame:
+    """Сырые ряды → панель с EMP, кризисами, индикаторами и целевой. Чистая функция:
+    значения на строке месяца m зависят только от данных ≤ m (кроме `y` — это будущее)."""
+    p = fill_cpi(raw, annual_cpi)
+    p = add_emp_and_crises(p, drop_shared=drop_shared)
+    p = add_indicators(p, war)
+    return add_target(p, target)
 
 
 # ---------------------------------------------------------------------------
@@ -377,39 +445,71 @@ def calibrate(score_train: pd.Series, y_train: pd.Series, score_test: pd.Series)
     return b_te.map(rate).fillna(y_train.mean())
 
 
-def run_models(p: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+@dataclass(frozen=True)
+class Fitted:
+    """Модели, обученные на том, что известно к концу месяца `as_of`."""
+    as_of: pd.Period
+    known: pd.DataFrame      # строки с закрывшимся окном: month + H ≤ as_of
+    ref: pd.DataFrame        # вся история ≤ as_of — для порогов-процентилей по стране
+    sig_model: dict
+    logit: object
+    lo: pd.Series
+    hi: pd.Series
+    med: pd.Series
+
+
+def fit(p: pd.DataFrame, as_of: pd.Period) -> Fitted | None:
+    """Обучение в точке as_of: метки — только окна, целиком закрывшиеся к as_of."""
     feats = list(INDICATORS)
+    known = p[(p.month + H <= as_of) & p.evaluable]
+    ref = p[p.month <= as_of]
+    if known.y.sum() < 5:
+        return None
+    tr = known[feats]
+    lo, hi = tr.quantile(0.01), tr.quantile(0.99)
+    med = tr.median().fillna(0.0)  # ряд пуст во всём обучении (экспорт в 1990-е) → 0
+    logit = make_pipeline(StandardScaler(), LogisticRegression(C=0.3, max_iter=2000))
+    logit.fit(tr.clip(lo, hi, axis=1).fillna(med), known.y)
+    return Fitted(as_of, known, ref, fit_signals(known), logit, lo, hi, med)
+
+
+def predict(m: Fitted, test: pd.DataFrame) -> pd.DataFrame:
+    feats = list(INDICATORS)
+    test = test.copy()
+    known = m.known
+    test["base_rate"] = known.y.mean()
+    # персистентность: вероятность кризиса в обучении при таком же давлении за 3 мес
+    # (как `decay` в блоке войн: «где трясёт — там тряхнёт ещё»)
+    test["pressure"] = calibrate(known.emp_z_max3.fillna(0), known.y, test.emp_z_max3.fillna(0)).to_numpy()
+    s_tr, s_te = composite(known, m.sig_model, m.ref), composite(test, m.sig_model, m.ref)
+    test["signals_score"] = s_te
+    test["signals"] = calibrate(s_tr, known.y, s_te).to_numpy()
+    te = test[feats].clip(m.lo, m.hi, axis=1).fillna(m.med)
+    test["logit"] = m.logit.predict_proba(te)[:, 1]
+    return test
+
+
+def forecast_asof(p: pd.DataFrame, as_of: pd.Period) -> pd.DataFrame:
+    """Прогноз в точке as_of для всех стран со своей валютой: всё — по данным ≤ as_of."""
+    m = fit(p, as_of)
+    test = p[(p.month == as_of) & p.own_currency & p.fx.notna()]
+    return predict(m, test)
+
+
+def run_models(p: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     preds, thresholds = [], []
     for T in range(FIRST_EVAL_YEAR, LAST_EVAL_YEAR + 1):
-        origin = pd.Period(f"{T}-01", freq="M")
-        # к 1 января T известны метки для месяцев m с m + H ≤ декабрь T−1
-        known = p[(p.month + H < origin) & p.evaluable]
-        test = p[(p.month.dt.year == T) & p.evaluable].copy()
-        ref = p[p.month < origin]  # для порогов: вся история до T (метки не нужны)
-        if known.y.sum() < 5 or test.empty:
+        # учимся на том, что известно к концу декабря T−1; предсказываем все месяцы T
+        m = fit(p, pd.Period(f"{T - 1}-12", freq="M"))
+        test = p[(p.month.dt.year == T) & p.evaluable]
+        if m is None or test.empty:
             continue
-        test["base_rate"] = known.y.mean()
-        # персистентность: вероятность кризиса в обучении при таком же давлении за 3 мес
-        # (как `decay` в блоке войн: «где трясёт — там тряхнёт ещё»)
-        test["pressure"] = calibrate(known.emp_z_max3.fillna(0), known.y, test.emp_z_max3.fillna(0)).to_numpy()
-        sig_model = fit_signals(known)
-        s_tr, s_te = composite(known, sig_model, ref), composite(test, sig_model, ref)
-        test["signals_score"] = s_te
-        test["signals"] = calibrate(s_tr, known.y, s_te).to_numpy()
-        for ind, m in sig_model.items():
-            thresholds.append({"year": T, "indicator": ind, **m})
-        # логрегрессия: пропуски → медиана обучения, обрезка по 1/99 процентилям
-        tr = known[feats].copy()
-        lo, hi = tr.quantile(0.01), tr.quantile(0.99)
-        med = tr.median().fillna(0.0)  # ряд пуст во всём обучении (экспорт в 1990-е) → 0
-        tr = tr.clip(lo, hi, axis=1).fillna(med)
-        te = test[feats].clip(lo, hi, axis=1).fillna(med)
-        logit = make_pipeline(StandardScaler(), LogisticRegression(C=0.3, max_iter=2000))
-        logit.fit(tr, known.y)
-        test["logit"] = logit.predict_proba(te)[:, 1]
+        test = predict(m, test)
+        for ind, par in m.sig_model.items():
+            thresholds.append({"year": T, "indicator": ind, **par})
         preds.append(test)
-        print(f"  {T}: обучение {len(known)} мес ({int(known.y.sum())} кризисных окон), "
-              f"тест {len(test)} мес ({int(test.y.sum())}), сигналов в модели {len(sig_model)}")
+        print(f"  {T}: обучение {len(m.known)} мес ({int(m.known.y.sum())} кризисных окон), "
+              f"тест {len(test)} мес ({int(test.y.sum())}), сигналов в модели {len(m.sig_model)}")
     return pd.concat(preds, ignore_index=True), pd.DataFrame(thresholds)
 
 
@@ -427,9 +527,14 @@ def metrics(pred: pd.DataFrame, mask: pd.Series | None = None) -> pd.DataFrame:
         ok = d[m].notna()
         if d.y[ok].nunique() < 2:
             continue
+        # AUC внутри года: умеет ли модель отличать страны друг от друга в один и тот же год
+        # (сквозной AUC ещё и штрафует за то, что общий уровень риска по годам не угадан)
+        yearly = [roc_auc_score(g.y, g[m]) for _, g in d[ok].groupby(d.month[ok].dt.year)
+                  if g.y.nunique() == 2 and g[m].nunique() > 1]
         rows.append({"model": m, "n": int(ok.sum()), "crisis_windows": int(d.y[ok].sum()),
                      "brier": brier_score_loss(d.y[ok], d[m][ok]),
-                     "auc": roc_auc_score(d.y[ok], d[m][ok])})
+                     "auc": roc_auc_score(d.y[ok], d[m][ok]),
+                     "auc_within_year": float(np.mean(yearly)) if yearly else np.nan})
     return pd.DataFrame(rows)
 
 
@@ -486,14 +591,11 @@ def coverage(p: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
-    target = argv[0] if argv else "crisis"
-    suffix = "" if target == "crisis" else f"_{target}"
+    target = next((a for a in argv if a in ("crisis", "deval15")), "crisis")
+    drop_shared = "all_currencies" not in argv  # `all_currencies` — срез «как до аудита», с еврозоной и т.п.
+    suffix = ("" if target == "crisis" else f"_{target}") + ("" if drop_shared else "_allcur")
     print("Панель МВФ…")
-    p = load_panel()
-    p = fill_cpi(p)
-    p = add_emp_and_crises(p)
-    p = add_indicators(p)
-    p = add_target(p, target)
+    p = build_panel(load_panel(), load_annual_cpi(), load_war(), target=target, drop_shared=drop_shared)
     print(f"  {p.iso3.nunique()} стран, {len(p)} страна-месяцев, {int(p.crisis.sum())} кризисов "
           f"по EMP (3σ), {int(p.deval15.sum())} по deval15")
     DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
@@ -501,14 +603,14 @@ def main(argv: list[str]) -> int:
     p.assign(month=p.month.astype(str)).to_parquet(DATA_PROCESSED / f"econ_kr_panel{suffix}.parquet", index=False)
 
     cov = coverage(p)
-    cov.to_csv(REPORTS / "econ_kr_coverage.csv", index=False)
+    cov.to_csv(REPORTS / f"econ_kr_coverage{suffix}.csv", index=False)
     print("\nПокрытие постсоветских стран:")
     print(cov[["country", "fx_from", "reserves_from", "cpi_from", "cpi_filled_months", "rate_from", "n_crises", "n_deval15"]].to_string(index=False))
 
     cr = p[(p.crisis == 1) & p.post_soviet][["iso3", "month", "de", "dr", "emp_z"]].copy()
     cr["country"] = cr.iso3.map(ISO3_TO_SHORT)
     cr["month"] = cr.month.astype(str)
-    cr.to_csv(REPORTS / "econ_kr_crises_post_soviet.csv", index=False)
+    cr.to_csv(REPORTS / f"econ_kr_crises_post_soviet{suffix}.csv", index=False)
     print("\nПостсоветские кризисы по EMP:")
     print(cr[["country", "month", "de", "dr", "emp_z"]].round(2).to_string(index=False))
 
