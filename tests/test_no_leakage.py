@@ -30,7 +30,7 @@ import pytest
 
 from seldon.core import entities, temporal
 from seldon.domains.banking import econ_boe, econ_boe_em
-from seldon.domains.conflict import features, features_epr, features_pitf, features_vdem, model_hist, panel
+from seldon.domains.conflict import dyads, features, features_epr, features_pitf, features_vdem, model_dyad, model_hist, panel
 from seldon.sources import epr as epr_source
 from seldon.sources import vdem as vdem_source
 from seldon.domains.currency import econ_kr, econ_long, kr_features, kr_targets, long_features
@@ -380,6 +380,11 @@ def test_publication_lags():
     assert t.available_from("vdem_annual", 2024) == pd.Timestamp("2025-04-01")
     assert t.publication_lag("vdem_annual", "jan1") == 1 == features_vdem.VDEM_LAG and t.publication_lag("vdem_annual", "apr1") == 0
     assert t.publication_lag("epr_annual", "jan1") == 1 == features_epr.EPR_LAG and t.publication_lag("epr_annual", "apr1") == 1
+    # диадный контур (чекпоинт 3.2): сессия ГА ООН года T к 1 января T+1 не оценена; хроника
+    # MID выходит с опозданием в годы
+    assert t.available_from("unga_ideal", 2024) == pd.Timestamp("2025-07-01")
+    assert t.publication_lag("unga_ideal", "jan1") == 1 == dyads.UNGA_LAG and t.publication_lag("unga_ideal", "apr1") == 1
+    assert t.publication_lag("cow_mid", "jan1") == 3 == dyads.MID_LAG and dyads.CAP_LAG == 1
     months = pd.Series(pd.period_range("2010-01", "2010-06", freq="M"))
     assert t.last_available_year_in_month("wdi_annual", months).tolist() == [2008, 2008, 2008, 2009, 2009, 2009]
 
@@ -562,6 +567,113 @@ def test_epr_chronicle_end_is_flagged():
     g2["rank"] = g2.status.map(epr_source.POWER_RANK)
     out2 = features_epr.add_epr_features(f, g2, tek, neighbors, year[["gw", "year", "deaths_state"]], lag=1, last_year=last)
     _same(out, out2, features_epr.EPR_FEATURES)
+
+
+# ---------------------------------------------------------------------------
+# 4б. Диадный контур (чекпоинт 3.2): слепота к будущему, лаги публикации, конец хроники MID
+# ---------------------------------------------------------------------------
+
+DYAD_POWERS = (1, 2)
+
+
+def synth_dyad(seed: int = 11):
+    """Синтетика для пар: ACD со сторонами (страна места — сторона A, помощник — на стороне
+    противника), идеальные точки ООН, потенциалы, споры MID."""
+    ged, states, parties, neighbors, span = synth_war()
+    y0, y1 = span
+    rng = np.random.default_rng(seed)
+    contig = pd.DataFrame(list(neighbors), columns=["a", "b", "year"]).assign(conttype=1)
+    acd = pd.DataFrame({
+        "conflict_id": parties.conflict_id, "year": parties.year,
+        "gwno_a": parties.parties.map(lambda p: str(p[0])), "gwno_a_2nd": "", "gwno_b": "",
+        "gwno_b_2nd": parties.parties.map(lambda p: str(p[1]) if len(p) > 1 else ""),
+        "gwno_loc": parties.parties.map(lambda p: str(p[0])), "incompatibility": rng.integers(1, 3, len(parties))})
+    cy = pd.DataFrame([(g, y) for g in WAR_STATES for y in range(y0 - 6, y1 + 1)], columns=["gw", "year"])
+    unga = cy.assign(ideal=rng.normal(0, 1, len(cy)))
+    cap = cy.copy()
+    for c in dyads.CAP_COLS:
+        cap[c] = np.exp(rng.normal(3, 1, len(cap)))
+    pairs = [(a, b) for a in WAR_STATES for b in WAR_STATES if a != b and (abs(a - b) == 1 or b in DYAD_POWERS)]
+    mid = pd.DataFrame([(a, b, y, int(rng.random() < 0.6), int(rng.random() < 0.3))
+                        for a, b in pairs for y in range(1975, y1 + 1) if rng.random() < 0.15],
+                       columns=["a", "b", "year", "force", "terr"])
+    return {"ged": ged, "states": states, "parties": parties, "neighbors": neighbors, "span": span,
+            "contig": contig, "acd": acd, "unga": unga, "cap": cap, "mid": mid}
+
+
+def _dyad_features(s: dict, lags=(1, 3, 1), mid_last_year: int | None = None, **over) -> pd.DataFrame:
+    """Панель пар из синтетики; `over` подменяет источники, `lags` = (ООН, MID, потенциалы)."""
+    s = {**s, **over}
+    y0, y1 = s["span"]
+    grid = dyads.build_grid(s["states"], s["contig"], y0, y1, powers=DYAD_POWERS)
+    opp = dyads.opponents(s["acd"])
+    dw = dyads.dyad_wars(s["ged"], opp, s["neighbors"])
+    return dyads.build_features(grid, opp, dw, s["unga"], s["mid"], s["cap"], unga_lag=lags[0], mid_lag=lags[1],
+                                cap_lag=lags[2], mid_last_year=y1 - 2 if mid_last_year is None else mid_last_year)
+
+
+def test_future_blindness_dyad():
+    """Диадный прогноз в точке T не зависит ни от боёв и сторон войн после T, ни от того, что
+    к 1 января T+1 не опубликовано: сессия ООН и потенциалы за T, споры MID позже T−3."""
+    s = synth_dyad()
+    T = 2008
+    cols = ["p_dyad", "p_base", *dyads.FEATURES]
+
+    def run(lags=(1, 3, 1), **over):
+        return model_dyad.forecast_asof(_dyad_features(s, lags, **over), T).sort_values(["a", "b"])
+
+    ged, acd = s["ged"], s["acd"]
+    bad_ged = _corrupt(ged, ged.year > T, ["best", "deaths_state"])
+    bad_ged[["best", "deaths_state"]] = bad_ged[["best", "deaths_state"]].fillna(5000).round()
+    bad_acd = acd.copy()
+    bad_acd.loc[bad_acd.year > T, "gwno_b_2nd"] = ", ".join(map(str, WAR_STATES))
+    bad_acd.loc[bad_acd.year > T, "incompatibility"] = 1
+    bad_unga = _corrupt(s["unga"], s["unga"].year >= T, ["ideal"])
+    bad_cap = _corrupt(s["cap"], s["cap"].year >= T, dyads.CAP_COLS)
+    bad_mid = s["mid"].copy()
+    late = bad_mid.year > T - dyads.MID_LAG
+    bad_mid.loc[late, ["force", "terr"]] = 1 - bad_mid.loc[late, ["force", "terr"]]
+
+    clean = run()
+    assert clean.p_dyad.nunique() > 1 and clean.pair_recency.max() > 0 and clean.mid_force.max() > 0 and len(clean) > 50
+    _same(clean, run(ged=bad_ged, acd=bad_acd, unga=bad_unga, cap=bad_cap, mid=bad_mid), cols)
+    # контроль: без лага порча тех же лет обязана быть видна
+    assert _differs(run((0, 3, 1)), run((0, 3, 1), unga=bad_unga), ["unga_dist", "unga_shift"]), "ООН: без лага порча года T видна"
+    assert _differs(run((1, 3, 0)), run((1, 3, 0), cap=bad_cap), ["log_power_ratio", "b_milex_surge"]), "потенциалы: без лага порча года T видна"
+    assert _differs(run((1, 0, 1)), run((1, 0, 1), mid=bad_mid), ["mid_force", "terr_dispute"]), "MID: без лага порча лет после T−3 видна"
+    # контроль самой проверки: порча ПРОШЛОГО обязана менять прогноз
+    past_unga = _corrupt(s["unga"], s["unga"].year < T, ["ideal"]).fillna(3.0)
+    assert _differs(clean, run(unga=past_unga), ["p_dyad"])
+
+
+def test_mid_chronicle_end_is_flagged():
+    """Хроника MID кончается в своём последнем году: дальше значения заморожены с флагом
+    `mid_extended`, записанное после конца хроники игнорируется (инвариант 6)."""
+    s = synth_dyad()
+    last = s["span"][1] - 8
+    d = _dyad_features(s, mid_last_year=last)
+    assert (d[d.year <= last + dyads.MID_LAG].mid_extended == 0).all() and (d[d.year > last + dyads.MID_LAG].mid_extended == 1).all()
+    frozen = d[d.year >= last + dyads.MID_LAG].groupby(["a", "b"]).mid_force.nunique()
+    assert (frozen == 1).all() and d.mid_force.max() > 0
+    bad_mid = s["mid"].copy()
+    bad_mid.loc[bad_mid.year > last, ["force", "terr"]] = 1
+    _same(d, _dyad_features(s, mid_last_year=last, mid=bad_mid), ["mid_force", "mid_terr", "terr_dispute"])
+
+
+def test_dyad_war_is_part_of_state_war():
+    """Диадная целевая — часть страновой: `dyad_war(A ← B) = 1` ⇒ `state_war25(A) = 1`. Далёкая
+    экспедиция — война для страны, где идут бои, но не для далёкой державы."""
+    s = synth_dyad()
+    year, _ = _war_panels(s["ged"], s["states"], s["parties"], s["neighbors"], s["span"])
+    d = _dyad_features(s)
+    w = d[d.dyad_war == 1].merge(year[["gw", "year", "state_war25"]], left_on=["a", "year"], right_on=["gw", "year"], how="left")
+    assert len(w) > 20 and (w.state_war25 == 1).all()
+    # страна 10 воюет на своей территории против далёкой державы 1 и соседа 11
+    ged = pd.DataFrame({"gw": [10], "year": [2000], "type_of_violence": [1], "best": [300], "conflict_new_id": [77]})
+    acd = pd.DataFrame({"conflict_id": [77], "year": [2000], "gwno_a": ["10"], "gwno_a_2nd": [""], "gwno_b": ["1"],
+                        "gwno_b_2nd": ["11"], "incompatibility": [2]})
+    dw = dyads.dyad_wars(ged, dyads.opponents(acd), s["neighbors"])
+    assert set(zip(dw.a, dw.b)) == {(10, 1), (10, 11), (11, 10)}
 
 
 # ---------------------------------------------------------------------------

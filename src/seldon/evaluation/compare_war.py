@@ -16,6 +16,15 @@
 (500 реплик: обе модели считаются на одной и той же выборке лет).
 
 Выход: reports/war_struct_comparison.csv
+
+Чекпоинт 3.2 — `compare_war dyad`: эталон `pitf` против двух каналов риска (`dy_indep`,
+`dy_intext`, `dy_cal2` из `model_dyad`) и набора `pitf_dyad`, на пяти выборках — к трём выше
+добавлены:
+    внешние начала     положительные — начала войны, где в год начала у страны есть
+                       государство-противник (`ext_war`, `dyads.py`); внутренние начала из
+                       выборки убраны;
+    внутренние начала  наоборот: положительные — начала без государства-противника.
+Выход: reports/war_dyad_comparison.csv
 """
 
 from __future__ import annotations
@@ -36,6 +45,13 @@ SAMPLES = {
     f"тихие ≥ {QUIET_YEARS}": lambda d: (d.at_risk == 1) & (d.years_since_war >= QUIET_YEARS),
     "постсоветские": lambda d: (d.at_risk == 1) & d.gw.isin(POST_SOVIET_GW),
 }
+# выборки чекпоинта 3.2: нужна колонка `ext_war` (есть ли в год прогноза государство-противник)
+DYAD_SAMPLES = {
+    **SAMPLES,
+    "внешние начала": lambda d: (d.at_risk == 1) & ~((d[ONSET_OF[TARGET]] == 1) & (d.ext_war == 0)),
+    "внутренние начала": lambda d: (d.at_risk == 1) & ~((d[ONSET_OF[TARGET]] == 1) & (d.ext_war == 1)),
+}
+DYAD_NAMES = ["pitf", "dy_indep", "dy_intext", "dy_cal2", "pitf_dyad"]
 METRICS = ("auc", "auc_within_year", "brier")
 
 
@@ -56,12 +72,14 @@ def _stats(d: pd.DataFrame, cols: list[str], onset: str) -> dict:
                 "brier": float(brier(d[onset], d[c]))} for c in cols}
 
 
-def compare(pred: pd.DataFrame, names: list[str], ref: str, target: str = TARGET, n_boot: int = N_BOOT, seed: int = 0) -> pd.DataFrame:
+def compare(pred: pd.DataFrame, names: list[str], ref: str, target: str = TARGET, n_boot: int = N_BOOT, seed: int = 0,
+            samples: dict | None = None) -> pd.DataFrame:
     onset = ONSET_OF[target]
+    samples = SAMPLES if samples is None else samples
     cols = [f"{n}_{target}" for n in names]
     ref_col = f"{ref}_{target}"
     rows = []
-    for sample, mask in SAMPLES.items():
+    for sample, mask in samples.items():
         d = pred[mask(pred)]
         point, reps = year_block_bootstrap(d, lambda x: _stats(x, cols, onset), n_boot=n_boot, seed=seed)
         for n, c in zip(names, cols):
@@ -92,7 +110,20 @@ def show(t: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def main_dyad() -> int:
+    pred = load(DYAD_NAMES)
+    ext = pd.read_parquet(DATA_PROCESSED / "dyad_ext_country_year.parquet")
+    pred = pred.merge(ext, on=["gw", "year"], how="left").fillna({"ext_war": 0})
+    t = compare(pred, DYAD_NAMES, "pitf", samples=DYAD_SAMPLES)
+    t.to_csv(REPORTS / "war_dyad_comparison.csv", index=False, float_format="%.4f")
+    print(f"эталон: pitf; целевая: начало {TARGET} в T+1; Δ — к эталону, парный бутстрэп по годам ({N_BOOT} реплик)")
+    print(show(t))
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["dyad"]:
+        return main_dyad()
     ref, *others = argv or ["pitf", "vdem", "epr", "vdem_epr"]
     names = [ref, *others]
     t = compare(load(names), names, ref)

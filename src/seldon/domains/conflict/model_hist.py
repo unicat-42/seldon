@@ -4,7 +4,8 @@
     uv run python -m seldon model_hist [набор] [logit|gbm] [целевая]
         набор:    hist (история, features.py) | pitf (+ режим, смертность, население) |
                   econ (+ экономика) | histecon | polit (+ лидеры, перевороты, протесты) |
-                  vdem (V-Dem вместо Polity5) | epr (pitf + этническое исключение) | vdem_epr
+                  vdem (V-Dem вместо Polity5) | epr (pitf + этническое исключение) | vdem_epr |
+                  pitf_dyad (pitf + свёрнутые диадные признаки, нужен `dyads`)
         целевая:  state_war25 (по умолчанию) | state_war1000 | war25 | war1000 (старые)
 
 История (признаки `features.py`) считается по state_war25; для старой целевой war25 —
@@ -57,6 +58,7 @@ from seldon import DATA_PROCESSED, REPORTS
 from seldon.core.calibration import expanding_isotonic
 from seldon.core.metrics import auc, auc_within, brier, interval, year_block_bootstrap
 from seldon.core.temporal import label_known
+from seldon.domains.conflict.dyads import COUNTRY_FEATURES as DYAD_COUNTRY_FEATURES
 from seldon.domains.conflict.features import DEFAULT_TARGET, features_file
 from seldon.domains.conflict.features import FEATURES as HIST_FEATURES
 from seldon.domains.conflict.features_econ import ECON_FEATURES
@@ -84,6 +86,8 @@ FEATURE_SETS = {
     "vdem": ([*HIST_FEATURES, *PITF_MACRO, *VDEM_FEATURES], "features_vdem_country_year.parquet"),
     "epr": ([*HIST_FEATURES, *PITF_FEATURES, *EPR_FEATURES], "features_struct_country_year.parquet"),
     "vdem_epr": ([*HIST_FEATURES, *PITF_MACRO, *VDEM_FEATURES, *EPR_FEATURES], "features_struct_country_year.parquet"),
+    # чекпоинт 3.2: свёрнутые на страну диадные признаки ПОВЕРХ `pitf` (контроль к двум каналам)
+    "pitf_dyad": ([*HIST_FEATURES, *PITF_FEATURES, *DYAD_COUNTRY_FEATURES], "features_dyad_country_year.parquet"),
 }
 # история считается по этой целевой (state_war1000 — редкая, её историю ведём по state_war25)
 HISTORY_OF = {"state_war25": "state_war25", "state_war1000": "state_war25", "war25": "war25", "war1000": "war25"}

@@ -24,9 +24,10 @@ def load_ged() -> pd.DataFrame:
     return g.rename(columns={"country_id": "gw"})
 
 
-def load_acd(year_from: int = YEAR_FROM) -> pd.DataFrame:
+def load_acd(year_from: int = YEAR_FROM, extra: tuple[str, ...] = ()) -> pd.DataFrame:
     """Конфликт-годы ACD: коды сторон (основные `gwno_a`/`gwno_b`, помогающие войсками
-    `gwno_a_2nd`/`gwno_b_2nd`) и место `gwno_loc` — строками, как в файле."""
-    cols = ["conflict_id", "year", "gwno_a", "gwno_b", "gwno_a_2nd", "gwno_b_2nd", "gwno_loc"]
+    `gwno_a_2nd`/`gwno_b_2nd`) и место `gwno_loc` — строками, как в файле. `extra` —
+    дополнительные колонки (например, `incompatibility`: 1 — территория, 2 — власть, 3 — обе)."""
+    cols = ["conflict_id", "year", "gwno_a", "gwno_b", "gwno_a_2nd", "gwno_b_2nd", "gwno_loc", *extra]
     a = pd.read_csv(ACD_FILE, usecols=cols)
     return a[a.year >= year_from]

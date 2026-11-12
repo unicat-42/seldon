@@ -20,6 +20,8 @@
     uv run python -m seldon download lv
     uv run python -m seldon download vdem
     uv run python -m seldon download epr
+    uv run python -m seldon download unga
+    uv run python -m seldon download mid
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -43,6 +45,7 @@ from seldon import DATA_RAW
 from seldon.sources.gmd import GMD_VERSION
 from seldon.sources.epr import EPR_VERSION
 from seldon.sources.ucdp import UCDP_VERSION
+from seldon.sources.unga import UNGA_DATAVERSE_ID, UNGA_FILE
 
 # ---------------------------------------------------------------------------
 # Источники
@@ -124,6 +127,9 @@ SOURCES: dict[str, dict] = {
             # годовой ИПЦ (2010 = 100) — затыкать дыры в месячном ИПЦ МВФ (econ_kr.py):
             # у Украины, Беларуси, Казахстана месячный ИПЦ у МВФ только с 2005
             "FP.CPI.TOTL": "cpi_annual",
+            # чекпоинт 3.2: военные расходы (оценки SIPRI) — в текущих долларах и в % ВВП
+            "MS.MIL.XPND.CD": "milex_usd",
+            "MS.MIL.XPND.GD.ZS": "milex_gdp",
         },
         "api": "https://api.worldbank.org/v2/country/all/indicator/{ind}?format=json&per_page=20000&date=1960:2025",
     },
@@ -202,6 +208,21 @@ SOURCES: dict[str, dict] = {
             "EPR-2023.csv": "8b4637484fb0963e6fc72306139deab655145589c9c851f312e8b231ca66cbd7",
             "TEK-2023.csv": "26b2689eb49673629a773d95c380266cf79514beb54647d5233c6a18f54a1c96",
         },
+    },
+    # Идеальные точки стран по голосованиям в Генассамблее ООН (Bailey–Strezhnev–Voeten),
+    # Harvard Dataverse hdl:1902.1/12379, файл релиза июля 2026 (сессии 1946–2025). Прямая
+    # ссылка API Dataverse, без регистрации; см. `sources/unga.py`.
+    "unga": {
+        "files": {UNGA_FILE: f"https://dataverse.harvard.edu/api/access/datafile/{UNGA_DATAVERSE_ID}"},
+        "unzip": False,
+        "sha256": {UNGA_FILE: "3ae821bbd19977d4229cde5ac648e4bc915d637ec0dcf93368838cf5bde2a956"},
+    },
+    # Correlates of War, диадные милитаризованные межгосударственные споры (Dyadic MID 4.02,
+    # 1816–2014). Прямой zip с сайта проекта; см. `sources/mid.py`.
+    "mid": {
+        "files": {"Dyadic-MIDs-4.02.zip": "https://correlatesofwar.org/wp-content/uploads/Dyadic-MIDs-4.02.zip"},
+        "unzip": True,
+        "sha256": {"Dyadic-MIDs-4.02.zip": "740afa58c847a6724b0b679d37f894663999b2a0525a8a7b6d330a648d9a64f4"},
     },
     # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
     # развивающиеся (Россия, Турция, Бразилия, Китай...), поквартально с 1940–1990-х, % ВВП.
@@ -531,6 +552,8 @@ FETCHERS = {
     "lv": fetch_lv,
     "vdem": fetch_vdem,
     "epr": lambda: fetch_static("epr"),
+    "unga": lambda: fetch_static("unga"),
+    "mid": lambda: fetch_static("mid"),
     "ucdp": lambda: fetch_static("ucdp"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
@@ -549,7 +572,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid"]
 
 
 def main(argv: list[str]) -> int:

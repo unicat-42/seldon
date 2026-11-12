@@ -22,6 +22,8 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "features_epr": ("seldon.domains.conflict.features_epr", "+ этническое исключение EPR (нужен features_vdem)"),
     "features_econ": ("seldon.domains.conflict.features_econ", "+ экономика (нужен econ_kr)"),
     "features_polit": ("seldon.domains.conflict.features_polit", "+ лидеры, перевороты, протесты"),
+    "dyads": ("seldon.domains.conflict.dyads", "диадная панель A ← B × год: целевая и признаки пар (нужен features_pitf)"),
+    "model_dyad": ("seldon.domains.conflict.model_dyad", "диадная модель вслепую + два канала риска поверх pitf (нужны dyads, model_hist pitf)"),
     "baseline": ("seldon.domains.conflict.baseline", "базовые модели войн: baseline [целевая]"),
     "model_hist": ("seldon.domains.conflict.model_hist", "модель войн: model_hist [набор] [logit|gbm] [целевая]"),
     # domains.currency

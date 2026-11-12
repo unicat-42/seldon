@@ -103,6 +103,16 @@ def to_gw(code: int, system: str) -> int:
     return table.get(int(code), int(code))
 
 
+SERBIA_SINCE = 2006  # COW 345 — Югославия до 2006 (GW 345) и Сербия после (GW 340)
+
+
+def cow_year_to_gw(ccode, year):
+    """Колонки кодов COW и годов → коды Gleditsch–Ward с учётом Сербии: COW 345 — это
+    GW 345 (Югославия) до 2006 и GW 340 (Сербия) с 2006."""
+    gw = ccode.astype(int).map(lambda c: COW_TO_GW.get(c, c))
+    return gw.where(~((ccode.astype(int) == SERBIA_COW) & (year >= SERBIA_SINCE)), SERBIA_GW)
+
+
 def ccode_to_gw(ccode):
     """Колонка кодов `ccode` из REIGN и Mass Mobilization (COW со своими кодами
     государств-преемников, как в Polity) → коды Gleditsch–Ward."""
