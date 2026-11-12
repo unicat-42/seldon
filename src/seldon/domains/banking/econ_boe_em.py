@@ -1,8 +1,10 @@
 """Модель Банка Англии (Bluwstein и др.) на развивающихся странах: GMD + кредит BIS.
 
 Запуск:
-    uv run python -m seldon econ_boe_em        # метка — хроника GMD
-    uv run python -m seldon econ_boe_em lv     # метка — Laeven–Valencia 2018 (`sources/lv.py`), оценка до 2015
+    uv run python -m seldon econ_boe_em [lv] [apr1]
+    без аргументов                             # метка — хроника GMD
+    lv                                         # метка — Laeven–Valencia 2018 (`sources/lv.py`), оценка до 2015
+    apr1                                       # прогноз «на 1 апреля» (макроданные без лага), суффикс `_apr1`
 
 Вопрос: держится ли модель BoE по банковским кризисам (AUC 0,65 при переносе на GMD в
 `research/econ_panel.py`) на выборке побольше — 44 страны BIS, из них ~20 развивающихся (Россия,
@@ -20,6 +22,9 @@
      (нужна длинная ставка; есть у 18 из 21 развивающихся);
      `core` — 8 признаков без ставок;
      `nomoney` — 7, ещё и без денежной массы (у России нет M3 с 2023, у еврозоны — вовсе).
+     Лаг публикации (чекпоинт 2.2): прогноз делается «на 1 января T+1», когда годовые
+     макроданные за T ещё не вышли, — поэтому макроряды строки T берутся за T−1 (и у JST
+     тоже); ставки — рыночные данные, они за T. `apr1` — без сдвига, как раньше.
   3. Целевая как у BoE: 1 для двух лет перед банковским кризисом; год кризиса и 4 после —
      выброшены.
   4. Модели вслепую по годам T (учимся на строках с t + 2 ≤ T, предсказываем T):
@@ -50,7 +55,8 @@ from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, REPORTS
 from seldon.core.metrics import auc, auc_within, brier
-from seldon.core.temporal import label_known
+from seldon.core.panel import lag_columns
+from seldon.core.temporal import label_known, publication_lag
 from seldon.domains.banking.econ_boe import HORIZON, PREDICTORS, build_boe_dataset
 from seldon.evaluation.backtest import backtest
 from seldon.sources.bis import BIS_ISO, load_bis_credit
@@ -70,6 +76,11 @@ JST_LAST_LABEL_YEAR = 2020  # хроника JST R6
 class Config:
     label: str = "gmd"      # или "lv": хроника Laeven–Valencia 2018 (lv.py), 1970–2017, где есть; иначе GMD
     last_year: int = 2024   # последний год признаков в панели
+    origin: str = "jan1"    # точка прогноза: "jan1" (макро за T−1) или "apr1" (макро за T)
+
+    @property
+    def macro_lag(self) -> int:
+        return publication_lag("gmd_annual", self.origin)
 
     @property
     def last_label_year(self) -> int:
@@ -81,7 +92,7 @@ class Config:
 
     @property
     def suffix(self) -> str:
-        return "" if self.label == "gmd" else f"_{self.label}"
+        return ("" if self.label == "gmd" else f"_{self.label}") + ("" if self.origin == "jan1" else f"_{self.origin}")
 
 
 MIN_CRISIS_TRAIN = 10
@@ -138,8 +149,25 @@ def load_panel(cfg: Config = Config()) -> pd.DataFrame:
     return j
 
 
-def build(panel: pd.DataFrame, feats: list[str]) -> pd.DataFrame:
-    d = build_boe_dataset(panel.drop(columns=["em", "credit_src", "country"]), predictors=feats)
+MACRO_LAG = publication_lag("gmd_annual", "jan1")  # 1 год: прогноз «на 1 января»
+# Что НЕ сдвигается: ключи; хроника кризисов (это метка, не признак); ставки и цены акций —
+# рыночные данные, они известны в конце года T без лага публикации. Сдвигаются годовые
+# макроданные: ВВП, кредит, деньги, ИПЦ, потребление, инвестиции, госдолг, счёт текущих операций.
+NOT_LAGGED = ("iso", "year", "country", "crisisJST", "stir", "ltrate", "stocks")
+
+
+def boe_dataset(raw: pd.DataFrame, feats: list[str], macro_lag: int = MACRO_LAG) -> pd.DataFrame:
+    """Таблица признаков BoE с лагом публикации: годовые макроряды сдвигаются на `macro_lag`
+    лет по календарю (на строке T — данные за T − `macro_lag`), ставки остаются за T; метка
+    (кризис в T+1…T+2) остаётся на своём месте. Наклон кривой доходности считается по ставкам
+    года T, обслуживание долга — последний известный кредит × ставка года T.
+    Годится и для панели GMD+BIS, и для JST."""
+    raw = lag_columns(raw, "iso", "year", [c for c in raw.columns if c not in NOT_LAGGED], macro_lag)
+    return build_boe_dataset(raw, predictors=feats)
+
+
+def build(panel: pd.DataFrame, feats: list[str], macro_lag: int = MACRO_LAG) -> pd.DataFrame:
+    d = boe_dataset(panel.drop(columns=["em", "credit_src", "country"]), feats, macro_lag)
     d["em"] = d.iso.isin(EM)
     return d
 
@@ -198,8 +226,8 @@ def forecast_asof(data: pd.DataFrame, jst_d: pd.DataFrame, feats: list[str], T: 
 
 def run(panel: pd.DataFrame, jst: pd.DataFrame, feats: list[str], tag: str, cfg: Config
         ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    data = build(panel, feats)
-    jst_d = build_boe_dataset(jst, predictors=feats)
+    data = build(panel, feats, cfg.macro_lag)
+    jst_d = boe_dataset(jst, feats, cfg.macro_lag)
     jst_coefs, own_coefs = [], []
 
     def step(T: int) -> pd.DataFrame | None:
@@ -282,7 +310,8 @@ def coverage(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
-    cfg = Config(label=argv[0]) if argv else Config()
+    cfg = Config(label="lv" if "lv" in argv else "gmd", origin="apr1" if "apr1" in argv else "jan1")
+    print(f"прогноз «на {'1 января' if cfg.origin == 'jan1' else '1 апреля'}»: макроданные с лагом {cfg.macro_lag} г.")
     sfx = cfg.suffix
     panel = load_panel(cfg)
     panel.to_parquet(DATA_PROCESSED / f"boe_em_panel{sfx}.parquet", index=False)
@@ -293,7 +322,7 @@ def main(argv: list[str]) -> int:
     jst = load_jst(JST_R6, "Sheet1")
     preds, coefs = [], []
     for tag, feats in FEATURE_SETS.items():
-        d = build(panel, feats)
+        d = build(panel, feats, cfg.macro_lag)
         print(f"\n[{tag}] {len(feats)} признаков: {len(d)} страна-лет, {d.iso.nunique()} стран "
               f"({d[d.em].iso.nunique()} развивающихся), {int(d.crisis.sum())} предкризисных лет "
               f"({int(d[d.em].crisis.sum())} у развивающихся)")

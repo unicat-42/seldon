@@ -4,14 +4,19 @@
     uv run python -m seldon risk_table
 
 Три модели проекта, обученные на всём, что известно, и применённые к последним данным
-(после аудита 12.11.2026 — без утечек будущего, см. `tests/test_no_leakage.py`):
+(после аудита 12.11.2026 — без утечек будущего, см. `tests/test_no_leakage.py`).
+Годовые прогнозы — в той же постановке, в какой модели проверены вслепую: «на 1 января»
+(чекпоинт 2.2, `core/temporal.py`). «Признаки года T» значит: курс и история войн — за T,
+а годовые макроданные (GMD, ВБ, BIS) — за T−1, потому что за T к 1 января ещё не вышли.
   1. Война (`model_hist pitf`, две логрегрессии — начала и продолжения): признаки 2024 →
      государственная война (`state_war25`, `state_war1000`) в 2025. UCDP есть по 2024,
      поэтому 2026 не считаем. Теракты и банды — отдельная колонка `nonstate25_now`.
   2. Валютный кризис, две шкалы:
-     - годовая модель (`econ_long`: декабрьский курс МВФ + GMD, 1957–2025): признаки 2025 →
-       девальвация ≥ 25 % (декабрь к декабрю) в 2026–27 — основной прогноз; признаки 2024 →
-       2025–26 — для сверки: 2025 уже известен (`fxa_deval_2025`);
+     - годовая модель (`econ_long`: декабрьский курс МВФ + GMD, 1957–2025): признаки 2025
+       (курс — декабрь 2025, макро — 2024) → девальвация ≥ 25 % (декабрь к декабрю) в 2026–27 —
+       основной прогноз «на 1 января 2026»; признаки 2024 → 2025–26 — для сверки: 2025 уже
+       известен (`fxa_deval_2025`). Колонки `fxa_infl_*`, `fxa_ca_*`, `fxa_debt_d2_*` — те
+       самые макроданные с лагом (для `_2026_27` это 2024 год);
      - месячная (`econ_kr`, целевая `deval15`, логрегрессия): признаки последнего месяца МВФ →
        скачок курса ≥ 15 % за месяц в ближайшие 12 месяцев (`fx_deval15_12m`). Рядом —
        индикаторы текущего стресса, это НЕ вероятности: `emp_z_max3`, `reserves_g12`,
@@ -19,8 +24,9 @@
      Колонка `fx_regime`: `own` — своя валюта; код валюты (EUR, XOF, USD…) — общая или чужая,
      своего валютного риска нет, вероятность пустая; `no_imf_fx` — валюта своя, но курса
      в данных МВФ нет (Туркменистан), прогноз посчитать не на чем.
-  3. Банковский кризис (`econ_boe_em`): признаки 2024 → кризис в 2025–26 и признаки 2025 →
-     2026–27 (предварительно: в GMD за 2025 могут быть оценки). Деревья BoE с JST
+  3. Банковский кризис (`econ_boe_em`): прогноз «на 1 января 2025» (данные по 2023) → кризис
+     в 2025–26 и «на 1 января 2026» (данные по 2024) → 2026–27. Оценки GMD за 2025 год в
+     прогноз больше не попадают. Деревья BoE с JST
      (`jst_extree`) и объединённые (`pooled_extree`), наборы `full`, `core`, `nomoney`.
      Свои данные — только годы с размеченной хроникой кризисов (≤ 2015), JST — ≤ 2018.
 
@@ -37,7 +43,6 @@ import pandas as pd
 from seldon import DATA_PROCESSED, REPORTS
 from seldon.core.entities import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3, shared_currency
 from seldon.domains.banking import econ_boe_em
-from seldon.domains.banking.econ_boe import build_boe_dataset
 from seldon.domains.conflict import model_hist
 from seldon.domains.conflict.features import FEATURES as HIST_FEATURES
 from seldon.domains.conflict.features_pitf import PITF_FEATURES
@@ -159,8 +164,8 @@ def bank_risk() -> pd.DataFrame:
     jst = load_jst(JST_R6, "Sheet1")
     frames: dict[str, list[pd.DataFrame]] = {}
     for tag, feats in econ_boe_em.FEATURE_SETS.items():
-        data = econ_boe_em.build(panel, feats)
-        jst_d = build_boe_dataset(jst, predictors=feats)
+        data = econ_boe_em.build(panel, feats, cfg.macro_lag)
+        jst_d = econ_boe_em.boe_dataset(jst, feats, cfg.macro_lag)
         jst_d = jst_d[jst_d.year <= econ_boe_em.JST_LAST_LABEL_YEAR - 2]
         train_own = data[data.year <= cfg.last_label_year - 2]  # дальше хроника не размечена
         lo, hi = jst_d[feats].min(), jst_d[feats].max()

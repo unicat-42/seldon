@@ -51,7 +51,12 @@
     берётся из строки ACD за этот же год: это знание «кто участвует в году Y», и для
     стороны, вступившей в уже идущую войну посреди года (Турция в Сирии, август 2016),
     бои с января приписываются ей заранее. Событийных данных о помогающих сторонах в GED
-    нет; закрывается на Этапе 2 лагом публикации (`available_from`).
+    нет. Поэтому в месячной панели есть вторые, «в реальном времени», версии колонок
+    (чекпоинт 2.2): `deaths_party_nb_rt`, `state_war25_rt`, `onset_state_war25_rt`,
+    `state_war1000_12m_rt` — в них стороны берутся из ACD за ПРОШЛЫЙ год (список за год Y
+    выходит после его окончания, `core/temporal.py`). Новый участник (Армения, сентябрь 2020)
+    в них до конца года «воюет» только на своей территории. Колонки без `_rt` — целевые
+    (что произошло на самом деле), с `_rt` — признаки (что было известно в тот месяц).
   - Соседи — Correlates of War Direct Contiguity 3.2: суша или море до 12 миль
     (`conttype` ≤ 2), по годам до 2016, дальше — как в 2016. Коды COW → GW — в core/entities.py.
   - Список стран — все независимые государства по Gleditsch & Ward (файл iisystem.dat),
@@ -66,11 +71,14 @@ from __future__ import annotations
 import pandas as pd
 
 from seldon import DATA_PROCESSED
+from seldon.core.temporal import last_available_year
 from seldon.sources.cow import load_neighbors
 from seldon.sources.gw import load_states
 from seldon.sources.ucdp import YEAR_FROM, YEAR_TO, load_acd, load_ged
 
 ONSET_QUIET_MONTHS = 12  # месячный онсет: столько месяцев подряд ниже порога перед началом
+# список сторон ACD за год Y выходит после окончания Y: внутри года Y известен список за Y−1
+ACD_LAG = 2000 - last_available_year("ucdp_acd", pd.Timestamp("2000-12-31"))
 
 # целевая → её онсет
 ONSET_OF = {
@@ -153,13 +161,21 @@ def add_targets(panel: pd.DataFrame, keys: list[str], monthly: bool) -> pd.DataF
     if monthly:
         d12 = panel.groupby("gw").deaths_war.transform(lambda s: s.rolling(12, min_periods=1).sum())
         panel["state_war1000_12m"] = (d12 >= 1000).astype("int8")
+        # то же «в реальном времени» (для ПРИЗНАКОВ): стороны — по списку ACD за прошлый год
+        g = panel.groupby("gw")
+        panel["state_war25_rt"] = ((panel.deaths_state >= 25) | (panel.deaths_party_nb_rt >= 25)).astype("int8")
+        recent = g.state_war25_rt.transform(lambda s: s.shift(1).rolling(quiet, min_periods=1).max()).fillna(0)
+        panel["onset_state_war25_rt"] = ((panel.state_war25_rt == 1) & (recent == 0)).astype("int8")
+        d12 = (panel.deaths_state + panel.deaths_party_nb_rt).groupby(panel.gw).transform(lambda s: s.rolling(12, min_periods=1).sum())
+        panel["state_war1000_12m_rt"] = (d12 >= 1000).astype("int8")
     return panel
 
 
 def build(ged: pd.DataFrame, states: pd.DataFrame, parties: pd.DataFrame, neighbors: set, monthly: bool,
           year_from: int = YEAR_FROM, year_to: int = YEAR_TO) -> pd.DataFrame:
     """Панель страна×период. Значения на строке периода зависят только от событий этого
-    периода и раньше (и от списка сторон ACD за этот же год — см. docstring модуля)."""
+    периода и раньше и от списка сторон ACD за этот же год (целевые — см. docstring модуля);
+    месячные колонки `*_rt` — только от списка сторон за прошлый год."""
     names = ged.drop_duplicates("gw").set_index("gw")["country"]
     states = states.assign(country=states["gw"].map(names).fillna(states["gw_name"]))
 
@@ -177,7 +193,13 @@ def build(ged: pd.DataFrame, states: pd.DataFrame, parties: pd.DataFrame, neighb
     panel = grid.merge(aggregate(ged, ["gw", *keys]), on=["gw", *keys], how="left")
     panel = panel.merge(party_deaths_old(ged, parties, keys), on=["gw", *keys], how="left")
     panel = panel.merge(party_deaths_neighbors(ged, parties, neighbors, keys), on=["gw", *keys], how="left")
-    for c in ["deaths_best", "deaths_state", "events", "deaths_party", "deaths_party_nb"]:
+    cols = ["deaths_best", "deaths_state", "events", "deaths_party", "deaths_party_nb"]
+    if monthly:
+        known = parties.assign(year=parties.year + ACD_LAG)  # в году Y известен список сторон за Y−1
+        rt = party_deaths_neighbors(ged, known, neighbors, keys).rename(columns={"deaths_party_nb": "deaths_party_nb_rt"})
+        panel = panel.merge(rt, on=["gw", *keys], how="left")
+        cols.append("deaths_party_nb_rt")
+    for c in cols:
         panel[c] = panel[c].fillna(0).astype("int64")
     return add_targets(panel, keys, monthly)
 

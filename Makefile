@@ -1,7 +1,8 @@
 # Селдон — пересчёт всего с нуля одной командой.
 #
 #   make all        боевой конвейер в правильном порядке (≈ 8 минут)
-#   make variants   срезы для сравнения: старые целевые, бустинг, all_currencies, другие хроники
+#   make variants   срезы для сравнения: старые целевые, бустинг, all_currencies, другие хроники,
+#                   прогноз «на 1 апреля» (`apr1` — макроданные без лага публикации)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make test       автотесты на утечки будущего (секунды)
 #   make data       скачать сырые данные (Laeven–Valencia — PDF руками, см. подсказку команды)
@@ -52,6 +53,8 @@ variants:
 	$(RUN) econ_long gmd_cc
 	$(RUN) econ_long lv_cc
 	$(RUN) econ_boe_em lv
+	$(RUN) econ_long deval25 apr1
+	$(RUN) econ_boe_em apr1
 
 replicate:
 	$(RUN) econ_boe

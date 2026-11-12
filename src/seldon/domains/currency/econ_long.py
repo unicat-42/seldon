@@ -1,7 +1,7 @@
 """Валютные кризисы по годам: декабрьский курс МВФ 1957–2025 + макроданные GMD, все страны.
 
 Запуск:
-    uv run python -m seldon econ_long [deval25|gmd_cc|lv_cc] [all_currencies]
+    uv run python -m seldon econ_long [deval25|gmd_cc|lv_cc] [all_currencies] [apr1]
 
 После аудита 12.11.2026 всё, что касается курса, считается по курсу НА КОНЕЦ ДЕКАБРЯ
 (МВФ, `EOP_RT`): девальвация года t = Dec(t)/Dec(t−1) − 1. Раньше брался среднегодовой курс
@@ -36,9 +36,11 @@ GMD — и обвал в конце года T (Россия-2014: средне�
     world_deval     доля стран мира (со своей валютой) с девальвацией ≥ 25 % в году t
     peg_years_log   ln(1 + лет без изменения декабрьского курса > 2 %) — привязка копит давление
     *_missing       флаги пропусков (признак тогда = 0)
-Оговорка: годовые данные GMD за год t считаются известными к концу t. На деле ВВП и счёт
-текущих операций публикуются с лагом в несколько месяцев — это закрывается на Этапе 2
-(`available_from`).
+Лаг публикации (чекпоинт 2.2, `core/temporal.py`): прогноз делается «на 1 января t+1».
+Декабрьский курс года t к этому дню известен, а годовые макроданные GMD за t выйдут только
+к 1 апреля — поэтому макропризнаки строки t (инфляция, ВВП, долг, счёт текущих операций,
+деньги) берутся за год t−1. Аргумент `apr1` — проверка чувствительности «на 1 апреля»:
+макроданные за t (так считалось до чекпоинта 2.2), файлы с суффиксом `_apr1`.
 
 Модели вслепую по годам T (обучение — строки с известной меткой, год ≤ T−2):
     base_rate       доля положительных в обучении
@@ -65,8 +67,8 @@ from sklearn.preprocessing import StandardScaler
 from seldon import DATA_PROCESSED, REPORTS
 from seldon.core.entities import ISO3_TO_SHORT, POST_SOVIET_ISO3, shared_currency_table
 from seldon.core.metrics import auc, auc_within, brier
-from seldon.core.panel import full_grid
-from seldon.core.temporal import label_known
+from seldon.core.panel import full_grid, lag_columns
+from seldon.core.temporal import label_known, publication_lag
 from seldon.domains.currency.long_features import BASE, FEATURES, MISSING, add_features
 from seldon.domains.currency.long_targets import FIRST_YEAR, H, LAST_YEAR, MIN_POS_TRAIN, add_events, add_target
 from seldon.evaluation.backtest import backtest
@@ -76,6 +78,9 @@ from seldon.sources.lv import load_lv_country_year
 
 SHORT_FROM = 1980
 EVAL_FROM = 1996
+# годовые ряды GMD, которые к 1 января ещё не вышли (уровни; признаки считаются из них)
+MACRO_COLS = ["infl", "rGDP", "nGDP", "govdebt_GDP", "CA_GDP", "M2", "M3", "M0"]
+MACRO_LAG = publication_lag("gmd_annual", "jan1")  # 1 год: прогноз «на 1 января»
 
 
 def load_lv() -> pd.DataFrame:
@@ -83,9 +88,10 @@ def load_lv() -> pd.DataFrame:
 
 
 def build_panel(gmd: pd.DataFrame, dec_fx: pd.DataFrame, lv: pd.DataFrame, target: str = "deval25",
-                last_year: int = LAST_YEAR, drop_shared: bool = True) -> pd.DataFrame:
+                last_year: int = LAST_YEAR, drop_shared: bool = True, macro_lag: int = MACRO_LAG) -> pd.DataFrame:
     """Панель страна×год с признаками и целевой. Чистая функция: признаки года t зависят
-    только от данных ≤ t (кроме `y` — это будущее)."""
+    только от курса ≤ декабря t и макроданных GMD ≤ t − `macro_lag` (кроме `y` — это будущее).
+    После сборки колонки `MACRO_COLS` на строке t содержат значения года t − `macro_lag`."""
     g = gmd.rename(columns={"ISO3": "iso3", "countryname": "country"})
     g = g[(g.year >= FIRST_YEAR - 10) & (g.year <= last_year)].copy()
     g["year"] = g.year.astype(int)
@@ -100,7 +106,9 @@ def build_panel(gmd: pd.DataFrame, dec_fx: pd.DataFrame, lv: pd.DataFrame, targe
         p = p.merge(shared_currency_table(int(p.year.min()), int(p.year.max())), on=["iso3", "year"], how="left")
         p["own_currency"] = p.fx_regime.isna()
     p = p.merge(lv, on=["iso3", "year"], how="left").rename(columns={"lv_currency": "lv_cc"})
-    return add_target(add_features(add_events(p.sort_values(["iso3", "year"]).reset_index(drop=True))), target)
+    p = add_events(p.sort_values(["iso3", "year"]).reset_index(drop=True))  # события и `hyper_prev` — по фактическим годам
+    p = lag_columns(p, "iso3", "year", [c for c in MACRO_COLS if c in p], macro_lag)
+    return add_target(add_features(p), target)
 
 
 def make_models(seed: int = 0, n_estimators: int = 400) -> dict:
@@ -209,8 +217,11 @@ def pre_crisis_table(p: pd.DataFrame, pred: pd.DataFrame, target: str) -> pd.Dat
 def main(argv: list[str]) -> int:
     target = next((a for a in argv if a in ("deval25", "gmd_cc", "lv_cc")), "deval25")
     drop_shared = "all_currencies" not in argv
-    suffix = ("" if target == "deval25" else f"_{target}") + ("" if drop_shared else "_allcur")
-    p = build_panel(load_gmd(), load_dec_fx(), load_lv(), target, drop_shared=drop_shared)
+    origin = "apr1" if "apr1" in argv else "jan1"
+    suffix = ("" if target == "deval25" else f"_{target}") + ("" if drop_shared else "_allcur") + ("" if origin == "jan1" else "_apr1")
+    p = build_panel(load_gmd(), load_dec_fx(), load_lv(), target, drop_shared=drop_shared,
+                    macro_lag=publication_lag("gmd_annual", origin))
+    print(f"прогноз «на {'1 января' if origin == 'jan1' else '1 апреля'}»: макроданные GMD с лагом {publication_lag('gmd_annual', origin)} г.")
     DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
     p.to_parquet(DATA_PROCESSED / f"econ_long_panel{suffix}.parquet", index=False)
     ev = p[p.evaluable]

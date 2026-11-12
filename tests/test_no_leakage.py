@@ -14,6 +14,10 @@
 2. `test_target_evaluable_sync_*` — у строки с `evaluable == True` целевая не может быть
    принудительно занулена внутренним правилом «тишины после кризиса».
 3. `test_entity_mapping` — коды стран и валютные союзы в `core/entities.py`.
+4. `test_available_from_*` — лаги публикации (чекпоинт 2.2): ни один признак не использует
+   значение раньше его `available_from`. Портим всё, что к дате прогноза ещё НЕ ВЫШЛО
+   (годовые макроданные за текущий год, список сторон войны за текущий год), — прогноз
+   обязан совпасть. Контроль: без лага та же порча прогноз меняет.
 
 Глобальные константы модулей тесты не трогают: всё передаётся аргументами.
 """
@@ -24,9 +28,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seldon.core import entities
+from seldon.core import entities, temporal
 from seldon.domains.banking import econ_boe, econ_boe_em
-from seldon.domains.conflict import features, model_hist, panel
+from seldon.domains.conflict import features, features_pitf, model_hist, panel
 from seldon.domains.currency import econ_kr, econ_long, kr_features, kr_targets, long_features
 
 ATOL = 1e-12
@@ -319,6 +323,9 @@ def test_war_party_not_open_before_first_event():
     b = month[(month.gw == 2) & (month.year == 1992)].set_index("month")
     assert b.state_war25.loc[:7].sum() == 0 and b.state_war25.loc[8] == 1  # сосед-сторона: с августа
     assert b.onset_state_war25.sum() == 1                                    # ноябрь после октября — не новый онсет
+    assert b.state_war25_rt.sum() == 0                                       # в реальном времени: списка сторон за 1992 ещё нет
+    a_rt = month[(month.gw == 1) & (month.year == 1992)].set_index("month")
+    assert a_rt.state_war25_rt.loc[8] == 1 and a_rt.onset_state_war25_rt.sum() == 1  # своя территория видна сразу
     c = month[(month.gw == 3) & (month.year == 1992)]
     assert c.state_war25.sum() == 0                                          # сторона без общей границы не «воюет»
     year = panel.build(ged, states, parties, neighbors, monthly=False, year_from=1989, year_to=1995)
@@ -342,6 +349,137 @@ def test_neighbor_war_does_not_teleport():
     assert f.loc[(B, 1992), "nb_log_deaths_1"] > 8                 # и видит бои у соседа C
     a = f.loc[(A, 1992)]
     assert a.nb_log_deaths_1 == 0 and a.nb_war_any == 0 and a.nb_onset_any == 0 and a.nb_war_share == 0
+
+
+# ---------------------------------------------------------------------------
+# 4. Лаги публикации: признак не использует значение раньше его available_from
+# ---------------------------------------------------------------------------
+
+
+def _differs(a: pd.DataFrame, b: pd.DataFrame, cols: list[str]) -> bool:
+    if len(a) != len(b):  # испорченные строки выпали целиком — тоже «изменилось»
+        return True
+    return any(not np.allclose(a[c].to_numpy(dtype=float), b[c].to_numpy(dtype=float), atol=ATOL, rtol=0, equal_nan=True)
+               for c in cols)
+
+
+def test_publication_lags():
+    t = temporal
+    assert t.available_from("gmd_annual", 2024) == pd.Timestamp("2025-04-01")
+    assert t.available_from("imf_fx_december", 2024) == pd.Timestamp("2025-01-01")
+    assert t.available_from("ucdp_acd", 2020) == pd.Timestamp("2021-01-01")
+    # прогноз с признаков года T «на 1 января T+1»: курс за T есть, макро — только за T−1
+    assert t.publication_lag("imf_fx_december", "jan1") == 0
+    assert t.publication_lag("gmd_annual", "jan1") == 1 == t.publication_lag("wdi_annual", "jan1")
+    assert t.publication_lag("gmd_annual", "apr1") == 0
+    # внутри года Y известен список сторон войны только за Y−1
+    assert t.last_available_year("ucdp_acd", pd.Timestamp("2020-09-30")) == 2019 and panel.ACD_LAG == 1
+    months = pd.Series(pd.period_range("2010-01", "2010-06", freq="M"))
+    assert t.last_available_year_in_month("wdi_annual", months).tolist() == [2008, 2008, 2008, 2009, 2009, 2009]
+
+
+def test_available_from_fx_annual():
+    """Прогноз «на 1 января T+1»: макроданные GMD за год T ещё не вышли и влиять не могут."""
+    gmd, dec, lv = synth_annual_fx()
+    T = 2000
+    models = ["base_rate", "persist", "logit", "extree"]
+
+    def run(gmd, lag):
+        p = econ_long.build_panel(gmd, dec, lv, target="deval25", last_year=2015, macro_lag=lag)
+        return econ_long.forecast_asof(p, T, n_estimators=40).sort_values("iso3")
+
+    bad = _corrupt(gmd, gmd.year >= T, econ_long.MACRO_COLS)  # всё, что на 1 января T+1 не опубликовано
+    lag = temporal.publication_lag("gmd_annual", "jan1")
+    assert lag == econ_long.MACRO_LAG == 1
+    clean = run(gmd, lag)
+    assert clean[models].notna().all().all() and clean.extree.nunique() > 1
+    _same(clean, run(bad, lag), models + long_features.FEATURES)
+    assert _differs(run(gmd, 0), run(bad, 0), long_features.FEATURES), "контроль: без лага порча года T обязана быть видна"
+
+
+def test_available_from_banking():
+    """Банковская модель «на 1 января T+1»: входные ряды за год T (свои и JST) ещё не вышли."""
+    jst, own = synth_jst(10, 3, "J"), synth_jst(12, 5, "E")
+    T = 2000
+    feats = econ_boe_em.NOMONEY
+    inputs = [c for c in jst.columns if c not in econ_boe_em.NOT_LAGGED]
+    models = ["base_rate", "jst_logreg", "jst_extree", "own_logreg", "own_extree", "pooled_logreg", "pooled_extree"]
+
+    def run(jst, own, lag):
+        data, jst_d = econ_boe_em.boe_dataset(own, feats, lag), econ_boe_em.boe_dataset(jst, feats, lag)
+        return econ_boe_em.forecast_asof(data, jst_d, feats, T, n_estimators=40).sort_values("iso")
+
+    bad_jst, bad_own = _corrupt(jst, jst.year >= T, inputs), _corrupt(own, own.year >= T, inputs, seed=7)
+    clean = run(jst, own, econ_boe_em.MACRO_LAG)
+    assert econ_boe_em.MACRO_LAG == 1 and clean[models].notna().all().all() and clean.jst_extree.nunique() > 1
+    _same(clean, run(bad_jst, bad_own, econ_boe_em.MACRO_LAG), models + feats)
+    assert _differs(run(jst, own, 0), run(jst, bad_own, 0), feats), "контроль: без лага порча года T обязана быть видна"
+
+
+def test_available_from_cpi_fill():
+    """Январь–март года t: годовой ИПЦ ВБ за t−1 ещё не вышел (выйдет 1 апреля) — заполнение
+    месячного ИПЦ и прогноз не должны от него зависеть."""
+    raw, annual, war = synth_monthly()
+    as_of = pd.Period("2010-02", freq="M")
+
+    def run(raw, annual):
+        p = econ_kr.build_panel(raw, annual, war, target="deval15")
+        return econ_kr.forecast_asof(p, as_of).sort_values("iso3")
+
+    clean = run(raw, annual)
+    bad = run(_corrupt(raw, raw.month > as_of, KR_COLS), _corrupt(annual, annual.year >= as_of.year - 1, ["value"]))
+    assert clean.infl12.nunique() > 1
+    _same(clean, bad, ["logit", "signals", "pressure", *kr_features.INDICATORS])
+
+
+def test_available_from_war_monthly():
+    """Месячные ПРИЗНАКИ войны (`*_rt`): список сторон ACD за текущий год ещё не вышел."""
+    ged, states, parties, neighbors, span = synth_war()
+    as_of = pd.Period("2008-06", freq="M")
+    rt = ["deaths_party_nb_rt", "state_war25_rt", "onset_state_war25_rt", "state_war1000_12m_rt"]
+    wcols = ["war25_now", "war1000_now", "war_onset12"]
+    iso = {g: f"S{g:02d}" for g in WAR_STATES}
+
+    def run(parties, realtime=True):
+        _, month = _war_panels(ged, states, parties, neighbors, span)
+        w = kr_features.war_features(month, gw_to_iso3=iso, realtime=realtime)
+        return month[month.year == as_of.year].sort_values(["gw", "month"]), w[w.month.dt.year == as_of.year].sort_values(["iso3", "month"])
+
+    bad_parties = parties.copy()
+    now = bad_parties.year >= as_of.year  # список за текущий год и позже
+    bad_parties.loc[now, "parties"] = bad_parties.loc[now, "parties"].map(lambda _: WAR_STATES)
+    m0, w0 = run(parties)
+    m1, w1 = run(bad_parties)
+    assert m0.deaths_party_nb_rt.sum() > 0
+    _same(m0, m1, rt)
+    _same(w0, w1, wcols)
+    assert _differs(run(parties, realtime=False)[1], run(bad_parties, realtime=False)[1], wcols), \
+        "контроль: целевые (не `_rt`) от списка сторон текущего года зависят"
+
+
+def test_available_from_war_annual():
+    """Годовая модель войн: детская смертность и население ВБ за год T к 1 января T+1 не вышли."""
+    ged, states, parties, neighbors, span = synth_war()
+    year, _ = _war_panels(ged, states, parties, neighbors, span)
+    f = features.build_features(year, neighbors, target="state_war25")
+    rng = np.random.default_rng(6)
+    grid = f[["gw", "year"]].copy()
+    imr = grid.assign(infant_mortality=rng.uniform(5, 120, len(grid)))
+    pop = grid.assign(population=rng.uniform(1e5, 1e8, len(grid)))
+    pol = pd.DataFrame({"gw": pd.Series(dtype=int), "year": pd.Series(dtype=int), "regime": pd.Series(dtype=str),
+                        "polity2": pd.Series(dtype=float), "regime_extended": pd.Series(dtype=float)})
+    T = 2008
+    cols = ["log_imr_rel", "imr_missing", "log_pop", "pop_missing"]
+
+    def run(imr, pop, lag):
+        out = features_pitf.add_pitf_features(f, pol, imr, pop, macro_lag=lag)
+        return out[out.year == T].sort_values("gw")
+
+    bad_imr, bad_pop = _corrupt(imr, imr.year >= T, ["infant_mortality"]), _corrupt(pop, pop.year >= T, ["population"], seed=5)
+    clean = run(imr, pop, features_pitf.MACRO_LAG)
+    assert features_pitf.MACRO_LAG == 1 and clean.log_imr_rel.nunique() > 1
+    _same(clean, run(bad_imr, bad_pop, features_pitf.MACRO_LAG), cols)
+    assert _differs(run(imr, pop, 0), run(bad_imr, bad_pop, 0), cols), "контроль: без лага порча года T обязана быть видна"
 
 
 # ---------------------------------------------------------------------------

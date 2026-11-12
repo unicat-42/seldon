@@ -1,19 +1,19 @@
 iso3,country,crisis_year,feature_set,in_sample,n_countries,jst_logreg,jst_logreg_rank,jst_extree,jst_extree_rank,own_logreg,own_logreg_rank,own_extree,own_extree_rank,pooled_extree,pooled_extree_rank
-ARG,Argentina,1995,core,True,22,0.163,2.0,0.094,3.0,0.048,4.0,0.074,5.0,0.11,3.0
+ARG,Argentina,1995,core,True,22,0.131,1.0,0.072,4.0,0.199,1.0,0.086,3.0,0.089,1.0
 ARG,Argentina,1995,full,False,16,,,,,,,,,,
-ARG,Argentina,1995,nomoney,True,22,0.151,3.0,0.085,4.0,0.068,3.0,0.075,6.0,0.107,3.0
+ARG,Argentina,1995,nomoney,True,22,0.093,4.0,0.069,5.0,0.214,1.0,0.075,3.0,0.065,6.0
 ARG,Argentina,2000,core,False,29,,,,,,,,,,
 ARG,Argentina,2000,full,False,24,,,,,,,,,,
 ARG,Argentina,2000,nomoney,False,31,,,,,,,,,,
 BRA,Brazil,1994,core,False,21,,,,,,,,,,
 BRA,Brazil,1994,full,False,14,,,,,,,,,,
 BRA,Brazil,1994,nomoney,False,21,,,,,,,,,,
-CHN,China,1998,core,True,30,0.064,16.0,0.115,6.0,0.183,7.0,0.147,10.0,0.124,10.0
+CHN,China,1998,core,True,30,0.015,29.0,0.058,25.0,0.021,28.0,0.06,25.0,0.048,27.0
 CHN,China,1998,full,False,21,,,,,,,,,,
-CHN,China,1998,nomoney,True,31,0.057,17.0,0.114,7.0,0.197,11.0,0.165,16.0,0.129,14.0
-COL,Colombia,1998,core,True,30,0.034,23.0,0.089,19.0,0.168,10.0,0.07,30.0,0.087,25.0
+CHN,China,1998,nomoney,True,30,0.021,27.0,0.059,23.0,0.016,28.0,0.038,30.0,0.044,27.0
+COL,Colombia,1998,core,True,30,0.043,23.0,0.068,18.0,0.212,3.0,0.08,17.0,0.071,17.0
 COL,Colombia,1998,full,False,21,,,,,,,,,,
-COL,Colombia,1998,nomoney,True,31,0.032,24.0,0.089,19.0,0.226,9.0,0.12,27.0,0.129,15.0
+COL,Colombia,1998,nomoney,True,30,0.039,22.0,0.071,13.0,0.225,3.0,0.086,15.0,0.074,15.0
 CZE,Czech Republic,1995,core,False,22,,,,,,,,,,
 CZE,Czech Republic,1995,full,False,16,,,,,,,,,,
 CZE,Czech Republic,1995,nomoney,False,22,,,,,,,,,,
@@ -22,46 +22,46 @@ HKG,Hong Kong,1991,full,False,15,,,,,,,,,,
 HKG,Hong Kong,1991,nomoney,False,25,,,,,,,,,,
 HKG,Hong Kong,1998,core,False,30,,,,,,,,,,
 HKG,Hong Kong,1998,full,False,21,,,,,,,,,,
-HKG,Hong Kong,1998,nomoney,False,31,,,,,,,,,,
+HKG,Hong Kong,1998,nomoney,False,30,,,,,,,,,,
 HUN,Hungary,1991,core,False,24,,,,,,,,,,
 HUN,Hungary,1991,full,False,15,,,,,,,,,,
-HUN,Hungary,1991,nomoney,True,25,0.006,22.0,0.054,20.0,0.012,21.0,0.025,19.0,0.032,20.0
+HUN,Hungary,1991,nomoney,True,25,0.013,22.0,0.079,13.0,0.016,22.0,0.084,5.0,0.095,10.0
 HUN,Hungary,1995,core,False,22,,,,,,,,,,
 HUN,Hungary,1995,full,False,16,,,,,,,,,,
 HUN,Hungary,1995,nomoney,False,22,,,,,,,,,,
-HUN,Hungary,2008,core,True,38,0.084,14.0,0.097,6.0,0.216,11.0,0.128,12.0,0.145,9.0
-HUN,Hungary,2008,full,True,32,0.164,11.0,0.133,10.0,0.239,17.0,0.12,15.0,0.163,13.0
-HUN,Hungary,2008,nomoney,True,41,0.077,14.0,0.101,7.0,0.202,12.0,0.149,8.0,0.164,5.0
-IDN,Indonesia,1998,core,True,30,0.057,18.0,0.096,10.0,0.15,12.0,0.202,5.0,0.171,5.0
+HUN,Hungary,2008,core,True,38,0.06,23.0,0.093,16.0,0.173,8.0,0.052,23.0,0.087,19.0
+HUN,Hungary,2008,full,True,32,0.089,12.0,0.113,17.0,0.196,15.0,0.077,17.0,0.1,17.0
+HUN,Hungary,2008,nomoney,True,41,0.066,25.0,0.092,16.0,0.159,12.0,0.049,19.0,0.094,19.0
+IDN,Indonesia,1998,core,True,30,0.046,20.0,0.078,11.0,0.032,25.0,0.11,7.0,0.105,6.0
 IDN,Indonesia,1998,full,False,21,,,,,,,,,,
-IDN,Indonesia,1998,nomoney,True,31,0.055,19.0,0.097,11.0,0.168,14.0,0.235,6.0,0.159,8.0
-IND,India,1993,core,True,22,0.014,19.0,0.052,18.0,0.008,9.0,0.024,12.0,0.03,19.0
+IDN,Indonesia,1998,nomoney,True,30,0.053,19.0,0.068,16.0,0.034,26.0,0.11,9.0,0.093,8.0
+IND,India,1993,core,True,21,0.014,18.0,0.053,16.0,0.011,11.0,0.035,11.0,0.035,15.0
 IND,India,1993,full,False,13,,,,,,,,,,
-IND,India,1993,nomoney,True,22,0.014,19.0,0.051,18.0,0.006,16.0,0.02,16.0,0.021,22.0
-KOR,South Korea,1997,core,True,31,0.054,17.0,0.092,8.0,0.062,18.0,0.118,7.0,0.107,10.0
-KOR,South Korea,1997,full,True,22,0.038,3.0,0.061,3.0,0.019,11.0,0.1,3.0,0.06,3.0
-KOR,South Korea,1997,nomoney,True,31,0.053,17.0,0.089,10.0,0.055,21.0,0.097,9.0,0.089,11.0
-MEX,Mexico,1994,core,True,21,0.088,3.0,0.087,2.0,0.052,3.0,0.116,1.0,0.108,2.0
-MEX,Mexico,1994,full,True,14,0.054,7.0,0.107,3.0,0.108,1.0,0.12,1.0,0.119,1.0
-MEX,Mexico,1994,nomoney,True,21,0.102,4.0,0.088,2.0,0.061,3.0,0.109,2.0,0.114,2.0
-MYS,Malaysia,1997,core,True,31,0.647,1.0,0.181,2.0,0.327,3.0,0.143,5.0,0.189,4.0
-MYS,Malaysia,1997,full,True,22,0.484,1.0,0.183,1.0,0.689,1.0,0.227,1.0,0.219,1.0
-MYS,Malaysia,1997,nomoney,True,31,0.642,1.0,0.189,3.0,0.341,3.0,0.154,5.0,0.18,4.0
+IND,India,1993,nomoney,True,21,0.017,18.0,0.06,11.0,0.01,14.0,0.034,8.0,0.034,11.0
+KOR,South Korea,1997,core,True,30,0.055,16.0,0.079,6.0,0.013,24.0,0.07,12.0,0.078,10.0
+KOR,South Korea,1997,full,True,22,0.064,3.0,0.07,3.0,0.007,15.0,0.04,8.0,0.054,3.0
+KOR,South Korea,1997,nomoney,True,30,0.065,14.0,0.074,7.0,0.011,25.0,0.056,15.0,0.067,12.0
+MEX,Mexico,1994,core,True,21,0.065,6.0,0.082,3.0,0.017,6.0,0.088,4.0,0.086,4.0
+MEX,Mexico,1994,full,True,14,0.076,10.0,0.1,4.0,0.037,2.0,0.114,1.0,0.107,4.0
+MEX,Mexico,1994,nomoney,True,21,0.054,8.0,0.085,3.0,0.018,6.0,0.092,3.0,0.093,3.0
+MYS,Malaysia,1997,core,True,30,0.375,2.0,0.148,1.0,0.157,1.0,0.145,2.0,0.161,3.0
+MYS,Malaysia,1997,full,True,22,0.125,1.0,0.11,1.0,0.508,1.0,0.185,1.0,0.167,1.0
+MYS,Malaysia,1997,nomoney,True,30,0.336,2.0,0.142,2.0,0.13,2.0,0.116,5.0,0.14,3.0
 POL,Poland,1992,core,False,21,,,,,,,,,,
 POL,Poland,1992,full,False,13,,,,,,,,,,
 POL,Poland,1992,nomoney,False,21,,,,,,,,,,
 RUS,Russian Federation,1995,core,False,22,,,,,,,,,,
 RUS,Russian Federation,1995,full,False,16,,,,,,,,,,
 RUS,Russian Federation,1995,nomoney,False,22,,,,,,,,,,
-RUS,Russian Federation,2008,core,True,38,0.026,30.0,0.086,15.0,0.319,8.0,0.171,4.0,0.195,1.0
-RUS,Russian Federation,2008,full,True,32,0.011,31.0,0.115,16.0,0.229,18.0,0.165,10.0,0.178,10.0
-RUS,Russian Federation,2008,nomoney,True,41,0.023,34.0,0.092,14.0,0.285,9.0,0.179,4.0,0.177,3.0
-THA,Thailand,1997,core,True,31,0.503,3.0,0.205,1.0,0.388,2.0,0.188,1.0,0.243,2.0
+RUS,Russian Federation,2008,core,True,38,0.022,33.0,0.086,18.0,0.107,20.0,0.125,5.0,0.116,12.0
+RUS,Russian Federation,2008,full,True,32,0.013,31.0,0.096,21.0,0.056,27.0,0.089,15.0,0.103,16.0
+RUS,Russian Federation,2008,nomoney,True,41,0.028,35.0,0.081,26.0,0.12,18.0,0.13,4.0,0.134,10.0
+THA,Thailand,1997,core,True,30,0.386,1.0,0.147,2.0,0.145,2.0,0.134,4.0,0.175,1.0
 THA,Thailand,1997,full,False,22,,,,,,,,,,
-THA,Thailand,1997,nomoney,True,31,0.504,3.0,0.209,1.0,0.349,2.0,0.186,2.0,0.248,1.0
-TUR,Turkey,1991,core,True,24,0.0,24.0,0.043,24.0,0.006,23.0,0.018,22.0,0.015,24.0
+THA,Thailand,1997,nomoney,True,30,0.359,1.0,0.146,1.0,0.12,4.0,0.144,2.0,0.157,2.0
+TUR,Turkey,1991,core,True,24,0.0,24.0,0.059,22.0,0.02,19.0,0.034,20.0,0.039,22.0
 TUR,Turkey,1991,full,False,15,,,,,,,,,,
-TUR,Turkey,1991,nomoney,True,25,0.0,25.0,0.046,25.0,0.007,24.0,0.022,20.0,0.029,22.0
-TUR,Turkey,2001,core,True,32,0.002,32.0,0.053,24.0,0.155,2.0,0.099,5.0,0.091,8.0
+TUR,Turkey,1991,nomoney,True,25,0.0,25.0,0.066,24.0,0.024,19.0,0.041,20.0,0.05,23.0
+TUR,Turkey,2001,core,True,32,0.0,32.0,0.053,27.0,0.175,4.0,0.121,6.0,0.086,9.0
 TUR,Turkey,2001,full,False,23,,,,,,,,,,
-TUR,Turkey,2001,nomoney,True,34,0.002,34.0,0.05,31.0,0.147,3.0,0.09,9.0,0.081,11.0
+TUR,Turkey,2001,nomoney,True,34,0.0,34.0,0.053,28.0,0.114,7.0,0.128,8.0,0.1,10.0

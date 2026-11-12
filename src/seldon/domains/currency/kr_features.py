@@ -12,6 +12,7 @@ import pandas as pd
 from seldon import DATA_PROCESSED
 from seldon.core.entities import GW_TO_ISO3
 from seldon.core.panel import pct_change
+from seldon.core.temporal import last_available_year_in_month
 
 # индикатор → в каком хвосте сигнал: "high" — сигнал при больших значениях, "low" — при малых
 INDICATORS = {
@@ -41,8 +42,10 @@ def fill_cpi(p: pd.DataFrame, annual: pd.DataFrame) -> pd.DataFrame:
 
     Индекс цен собирается цепочкой из месячных ТЕМПОВ, а не уровней:
       - если ИПЦ МВФ есть и в этом месяце, и в прошлом — темп из МВФ;
-      - иначе для месяца года t — темп последнего завершённого года:
-        ln(A(t−1)/A(t−2)) / 12, где A(y) — годовое среднее ВБ (известно к началу t).
+      - иначе — темп последнего года, за который годовое среднее ВБ уже ВЫШЛО:
+        ln(A(y)/A(y−1)) / 12. Годовые данные ВБ за y доступны с 1 апреля y+1
+        (`core/temporal.py`), поэтому в январе–марте года t это y = t−2, с апреля — y = t−1.
+        (До чекпоинта 2.2 A(t−1) считалось известным уже в январе t.)
     Уровень индекса произвольный (везде используются только темпы и отношение к своему
     тренду). До аудита уровень заполнения подгонялся к первому БУДУЩЕМУ наблюдению МВФ
     (утечка), а темп внутри года был занижен в 12 раз и давал скачок в январе.
@@ -52,9 +55,8 @@ def fill_cpi(p: pd.DataFrame, annual: pd.DataFrame) -> pd.DataFrame:
     a["prev"] = a.groupby("iso3").value.shift(1)
     a["prev_year"] = a.groupby("iso3").year.shift(1)
     a = a[a.prev_year == a.year - 1]  # нужны два подряд идущих года
-    a["g_annual"] = np.log(a.value / a.prev) / 12  # месячный лог-темп последнего завершённого года
-    a["year"] = a.year + 1  # применяем к следующему году
-    p["year"] = p.month.dt.year
+    a["g_annual"] = np.log(a.value / a.prev) / 12  # месячный лог-темп года a.year
+    p["year"] = last_available_year_in_month("wdi_annual", p.month)  # последний вышедший год
     p = p.merge(a[["iso3", "year", "g_annual"]], on=["iso3", "year"], how="left")
     same = p.iso3 == p.iso3.shift(1)
     g_imf = np.log(p.cpi / p.cpi.shift(1)).where(same)
@@ -102,14 +104,18 @@ def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None) -> pd.DataF
     return p.merge(war[["iso3", "month", *WAR_COLS]], on=["iso3", "month"], how="left")
 
 
-def war_features(month_panel: pd.DataFrame, gw_to_iso3: dict | None = None) -> pd.DataFrame:
+def war_features(month_panel: pd.DataFrame, gw_to_iso3: dict | None = None, realtime: bool = True) -> pd.DataFrame:
     """Война по месяцам из блока войн (`domains/conflict/panel.py`, коды GW) → iso3, month и три признака.
     Всё на строке месяца m посчитано по событиям ≤ m:
       war25_now    — государственная война: ≥ 25 погибших за месяц у себя или у соседа,
                      где страна — сторона (`state_war25`);
       war1000_now  — ≥ 1000 погибших за последние 12 месяцев (скользящая сумма);
-      war_onset12  — начало войны (после ≥ 12 тихих месяцев) за последние 12 мес."""
-    w = month_panel[["gw", "year", "month", "state_war25", "state_war1000_12m", "onset_state_war25"]].copy()
+      war_onset12  — начало войны (после ≥ 12 тихих месяцев) за последние 12 мес.
+    `realtime=True` (по умолчанию) — колонки `*_rt` месячной панели: кто сторона войны,
+    берётся из списка ACD за ПРОШЛЫЙ год (за текущий он выйдет после его окончания)."""
+    sfx = "_rt" if realtime else ""  # `_rt` — как было видно в реальном времени: стороны по ACD за прошлый год
+    w = month_panel[["gw", "year", "month", f"state_war25{sfx}", f"state_war1000_12m{sfx}", f"onset_state_war25{sfx}"]].copy()
+    w.columns = ["gw", "year", "month", "state_war25", "state_war1000_12m", "onset_state_war25"]
     w["iso3"] = w.gw.map(GW_TO_ISO3 if gw_to_iso3 is None else gw_to_iso3)
     w = w[w.iso3.notna()].copy()
     w["month"] = pd.PeriodIndex(pd.to_datetime(dict(year=w.year, month=w.month, day=1)), freq="M")

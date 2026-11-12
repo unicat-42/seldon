@@ -4,8 +4,8 @@
     uv run python -m seldon features_econ
 
 Читает features_pitf_country_year.parquet (история + PITF), добавляет колонки ниже и пишет
-features_econ_country_year.parquet. Все признаки года T известны к концу T и используются
-для прогноза войны в T+1 (так устроен model_hist.py). GMD обрезан 2024 годом — дальше
+features_econ_country_year.parquet. Признаки строки T используются для прогноза войны в T+1
+(так устроен model_hist.py); годовые GMD и кредит ВБ берутся за T−1 — лаг публикации. GMD обрезан 2024 годом — дальше
 в нём прогнозы МВФ, их не берём.
 
     gdp_growth        рост реального ВВП за год, доля (обрезан ±50 %)
@@ -28,10 +28,12 @@ import pandas as pd
 
 from seldon import DATA_PROCESSED
 from seldon.core.entities import GW_TO_ISO3
+from seldon.core.temporal import publication_lag
 from seldon.sources.gmd import load_gmd
 from seldon.sources.wdi import load_wdi
 
 GMD_LAST_YEAR = 2024
+MACRO_LAG = publication_lag("gmd_annual", "jan1")  # годовые GMD и ВБ за T к 1 января T+1 ещё не вышли
 GMD_FEATURES = ["gdp_growth", "gdp_growth_3", "log_gdp_pc", "infl_log", "deval", "credit_diff2"]
 EMP_FEATURES = ["emp_max", "emp_crisis_now", "emp_crisis_prev"]
 ECON_FEATURES = [*GMD_FEATURES, *EMP_FEATURES, "econ_missing", "emp_missing"]
@@ -67,12 +69,16 @@ def load_emp() -> pd.DataFrame:
     return a
 
 
-def build() -> pd.DataFrame:
+def build(macro_lag: int = MACRO_LAG) -> pd.DataFrame:
+    """Лаг публикации (чекпоинт 2.2): признаки GMD и кредит ВБ на строке T — за год
+    T − `macro_lag`; EMP собран из месячных данных года T и лага не требует."""
     f = pd.read_parquet(DATA_PROCESSED / "features_pitf_country_year.parquet")
     key = iso_to_gw_table()
     gmd = gmd_features().merge(key, on="iso3").drop(columns="iso3")
+    gmd["year"] = gmd.year + macro_lag
     credit = load_wdi("credit_gdp").sort_values(["gw", "year"])
     credit["credit_diff2"] = credit.groupby("gw").credit_gdp.diff(2) / 100.0
+    credit["year"] = credit.year + macro_lag
     emp = load_emp().merge(key, on="iso3").drop(columns="iso3")
     f = (f.merge(gmd, on=["gw", "year"], how="left")
           .merge(credit[["gw", "year", "credit_diff2"]], on=["gw", "year"], how="left")
