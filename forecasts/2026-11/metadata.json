@@ -1,0 +1,482 @@
+{
+  "vintage": "2026-11",
+  "generated_at": "2026-11-12T17:34:06+00:00",
+  "what": "Замороженные прогнозы проекта «Селдон». Вероятности, а не «да/нет»; события редкие.",
+  "origin": "годовые прогнозы — «на 1 января»: курс и история войн за год T, годовые макроданные за T−1 (лаги публикации, src/seldon/core/temporal.py)",
+  "code": {
+    "commit": "7ee558f82ceaf33d42d54bf809e5cc0b1bd3307d",
+    "uncommitted_changes": true,
+    "src_sha256": "5a379e83af6382199bd4211cbd04276f2cd19e22ef2eb2a7322ca3934e9b5d06",
+    "note": "винтаж фиксируется коммитом Git, который добавляет эту папку; commit — коммит, поверх которого он собран"
+  },
+  "inputs": {
+    "risk_table": {
+      "file": "reports/risk_2025_26.csv",
+      "sha256": "6de1cf2f97d243834a5a52840eeebf2cc50155758fb5e310842f2ceaa751bc23"
+    },
+    "scorecard": {
+      "file": "reports/scorecard.csv",
+      "sha256": "28f3ed72b72211e97bb6e536ab19e9e6e025a7092d47b43a47174ac84c1bbc3d"
+    }
+  },
+  "predictions": {
+    "file": "predictions.csv",
+    "rows": 174,
+    "columns": {
+      "iso3": "код страны ISO3",
+      "country": "название",
+      "post_soviet": "постсоветская страна",
+      "state_war25_now": "государственная война (≥ 25 погибших) в 2024 году, факт UCDP",
+      "p_state_war25_2025": "вероятность государственной войны ≥ 25 погибших в 2025 году",
+      "rank_state_war25_at_risk": "место среди стран без войны в 2024 (1 = самый высокий риск начала)",
+      "p_state_war1000_2025": "вероятность войны ≥ 1000 погибших в 2025 году",
+      "fx_regime": "валюта: own — своя; код (EUR, USD…) — общая/чужая, прогноза нет; no_imf_fx — нет курса в данных МВФ",
+      "fxa_logit_2026_27": "вероятность девальвации ≥ 25 % (декабрь к декабрю) в 2026 или 2027, логрегрессия",
+      "rank_fxa_logit_2026_27": "место по этой вероятности (1 = самый высокий риск)",
+      "fxa_extree_2026_27": "то же, деревья (ExtraTrees)",
+      "rank_fxa_extree_2026_27": "место по деревьям",
+      "as_of": "последний месяц с курсом МВФ — точка отсчёта месячного прогноза",
+      "fx_deval15_12m": "вероятность скачка курса ≥ 15 % за месяц в ближайшие 12 месяцев, логрегрессия",
+      "rank_fx_deval15_12m": "место по этой вероятности",
+      "bank_status": "банковский контур: ok | no_yield_curve | no_broad_money | no_bis_credit",
+      "bank_jst_extree_full_2026_27": "вероятность системного банковского кризиса в 2026 или 2027 году (деревья BoE, набор full)",
+      "rank_bank_jst_extree_full_2026_27": "место по этой вероятности"
+    },
+    "coverage": {
+      "fx_regime": {
+        "own": 114,
+        "EUR": 23,
+        "no_imf_fx": 19,
+        "XOF": 8,
+        "XAF": 6,
+        "USD": 4
+      },
+      "bank_status": {
+        "no_bis_credit": 132,
+        "ok": 26,
+        "no_broad_money": 11,
+        "no_yield_curve": 5
+      }
+    },
+    "sha256": "7d449401cebf244f595a305daf506a644d056e39706dbba1eef1f3505c957834"
+  },
+  "fx_monthly_as_of": {
+    "last_month_in_data": "2026-10",
+    "by_country_min": "2026-04",
+    "by_country_max": "2026-10"
+  },
+  "models": [
+    {
+      "column": "p_state_war25_2025",
+      "contour": "война, год",
+      "model": "model_hist pitf (логрегрессия начала + продолжения)",
+      "target": "state_war25: ≥ 25 погибших в государственном конфликте на своей территории или у соседа, где страна — сторона",
+      "as_of": "2025-01-01",
+      "features_year": 2024,
+      "window": "2025",
+      "note": "UCDP GED есть по 2024 год. Оценка вслепую — для стран без войны в году T (начало войны).",
+      "n_countries": 174,
+      "out_of_sample": {
+        "block": "война: начало state_war25 в T+1",
+        "sample": "мир, страны без войны в T",
+        "model": "pitf_state_war25",
+        "n": 3949,
+        "positives": 152,
+        "base_rate": 0.0385,
+        "years": "1996–2024",
+        "auc_pooled": 0.8296,
+        "auc_pooled_ci95": [
+          0.7793,
+          0.8728
+        ],
+        "auc_within_year": 0.8675,
+        "brier": 0.0342,
+        "vs_baseline": {
+          "baseline": "decay",
+          "auc_diff": 0.0643,
+          "ci95": [
+            0.0215,
+            0.1081
+          ]
+        }
+      }
+    },
+    {
+      "column": "fxa_logit_2026_27",
+      "contour": "валютный кризис, год",
+      "model": "econ_long logit_long",
+      "target": "deval25: курс к доллару на конец декабря вырос ≥ 25 % за год после ≥ 2 спокойных лет",
+      "as_of": "2026-01-01",
+      "features_year": 2025,
+      "window": "2026–2027",
+      "note": "Курс — декабрь 2025, макроданные GMD — 2024 (лаг публикации).",
+      "n_countries": 112,
+      "out_of_sample": {
+        "block": "валютный кризис, год: deval25 в t+1…t+2",
+        "sample": "мир",
+        "model": "logit_long",
+        "n": 3794,
+        "positives": 258,
+        "base_rate": 0.068,
+        "years": "1996–2023",
+        "auc_pooled": 0.702,
+        "auc_pooled_ci95": [
+          0.6392,
+          0.7675
+        ],
+        "auc_within_year": 0.7388,
+        "brier": 0.0621,
+        "vs_baseline": {
+          "baseline": "persist",
+          "auc_diff": 0.2239,
+          "ci95": [
+            0.1404,
+            0.2928
+          ]
+        }
+      }
+    },
+    {
+      "column": "fxa_extree_2026_27",
+      "contour": "валютный кризис, год",
+      "model": "econ_long extree_long",
+      "target": "deval25",
+      "as_of": "2026-01-01",
+      "features_year": 2025,
+      "window": "2026–2027",
+      "note": "",
+      "n_countries": 112,
+      "out_of_sample": {
+        "block": "валютный кризис, год: deval25 в t+1…t+2",
+        "sample": "мир",
+        "model": "extree_long",
+        "n": 3794,
+        "positives": 258,
+        "base_rate": 0.068,
+        "years": "1996–2023",
+        "auc_pooled": 0.686,
+        "auc_pooled_ci95": [
+          0.6029,
+          0.7762
+        ],
+        "auc_within_year": 0.7811,
+        "brier": 0.0614,
+        "vs_baseline": {
+          "baseline": "persist",
+          "auc_diff": 0.2079,
+          "ci95": [
+            0.144,
+            0.2719
+          ]
+        }
+      }
+    },
+    {
+      "column": "fx_deval15_12m",
+      "contour": "валютный кризис, месяц",
+      "model": "econ_kr logit, целевая deval15",
+      "target": "deval15: курс к доллару за месяц вырос ≥ 15 % (первый скачок после ≥ 12 спокойных месяцев)",
+      "as_of": "колонка as_of (последний месяц с курсом МВФ по стране)",
+      "features_year": null,
+      "window": "12 месяцев после as_of",
+      "note": "На постсоветской подвыборке модель не лучше монетки — см. вторую строку метрик.",
+      "n_countries": 109,
+      "out_of_sample": {
+        "block": "валютный кризис, месяц: deval15 за 12 мес",
+        "sample": "мир",
+        "model": "logit",
+        "n": 52566,
+        "positives": 2141,
+        "base_rate": 0.0407,
+        "years": "1996–2024",
+        "auc_pooled": 0.6399,
+        "auc_pooled_ci95": [
+          0.5862,
+          0.7005
+        ],
+        "auc_within_year": 0.698,
+        "brier": 0.0398,
+        "vs_baseline": {
+          "baseline": "pressure",
+          "auc_diff": 0.0724,
+          "ci95": [
+            0.0177,
+            0.1406
+          ]
+        }
+      }
+    },
+    {
+      "column": "bank_jst_extree_full_2026_27",
+      "contour": "банковский кризис",
+      "model": "econ_boe_em jst_extree, набор full",
+      "target": "как у Bluwstein и др.: строка T = 1, если T — один из двух лет перед системным банковским кризисом; признаки в строке T — макроданные за T−1, ставки за T",
+      "as_of": "2026-01-01",
+      "features_year": 2025,
+      "window": "кризис в 2026–2027 по метке BoE (год T+1 или T+2)",
+      "note": "Узкое покрытие: только страны BIS с длинной ставкой и своей денежной массой; в оценке вслепую вне JST — 9 предкризисных лет.",
+      "n_countries": 26,
+      "out_of_sample": {
+        "block": "банковский кризис в t+1…t+2, набор full",
+        "sample": "страны BIS вне JST",
+        "model": "jst_extree",
+        "n": 269,
+        "positives": 9,
+        "base_rate": 0.0335,
+        "years": "1990–2015",
+        "auc_pooled": 0.6709,
+        "auc_pooled_ci95": [
+          0.5169,
+          0.7985
+        ],
+        "auc_within_year": 0.7451,
+        "brier": 0.0367
+      }
+    }
+  ],
+  "weak_spots": [
+    {
+      "block": "валютный кризис, год: deval25 в t+1…t+2",
+      "sample": "постсоветские",
+      "model": "logit_long",
+      "n": 256,
+      "positives": 37,
+      "base_rate": 0.1445,
+      "years": "1996–2023",
+      "auc_pooled": 0.586,
+      "auc_pooled_ci95": [
+        0.4683,
+        0.7448
+      ],
+      "auc_within_year": 0.6719,
+      "brier": 0.1231,
+      "vs_baseline": {
+        "baseline": "persist",
+        "auc_diff": 0.2018,
+        "ci95": [
+          0.0599,
+          0.3614
+        ]
+      }
+    },
+    {
+      "block": "валютный кризис, месяц: deval15 за 12 мес",
+      "sample": "постсоветские",
+      "model": "logit",
+      "n": 3821,
+      "positives": 370,
+      "base_rate": 0.0968,
+      "years": "1996–2024",
+      "auc_pooled": 0.4461,
+      "auc_pooled_ci95": [
+        0.326,
+        0.561
+      ],
+      "auc_within_year": 0.5784,
+      "brier": 0.0938,
+      "vs_baseline": {
+        "baseline": "pressure",
+        "auc_diff": -0.0402,
+        "ci95": [
+          -0.1498,
+          0.0677
+        ]
+      }
+    },
+    {
+      "block": "банковский кризис в t+1…t+2, набор nomoney",
+      "sample": "страны BIS вне JST",
+      "model": "jst_extree",
+      "n": 471,
+      "positives": 30,
+      "base_rate": 0.0637,
+      "years": "1990–2015",
+      "auc_pooled": 0.5455,
+      "auc_pooled_ci95": [
+        0.4144,
+        0.6544
+      ],
+      "auc_within_year": 0.4955,
+      "brier": 0.0624
+    }
+  ],
+  "metrics_method": "проверка вслепую расширяющимся окном; AUC сквозной (по всем страна-периодам) и средний по годам; 95 % интервал — блочный бутстрэп по годам, 500 реплик (src/seldon/core/metrics.py)",
+  "raw_data": {
+    "ucdp": {
+      "version": "25.1",
+      "files": [
+        {
+          "file": "ucdp/GEDEvent_v25_1.csv",
+          "bytes": 250393383,
+          "sha256": "3f286de84cc0cb9152403f53e6aea2ac604d623f156e61079338596e09e8b550",
+          "downloaded_at": null,
+          "url": null
+        },
+        {
+          "file": "ucdp/UcdpPrioConflict_v25_1.csv",
+          "bytes": 506186,
+          "sha256": "a7a2ff6caf6c854f4fafb1b17f616da1ed6bbc00612943ec6e071511ebea7a81",
+          "downloaded_at": null,
+          "url": null
+        }
+      ]
+    },
+    "gw": {
+      "version": null,
+      "files": [
+        {
+          "file": "gw/iisystem.dat",
+          "bytes": 9093,
+          "sha256": "c9e559020492c246d2d7b60ac5b6fbd75ba1e681136be2212ed1444b0a28e067",
+          "downloaded_at": null,
+          "url": "http://ksgleditsch.com/data/iisystem.dat"
+        }
+      ]
+    },
+    "cow": {
+      "version": "Direct Contiguity 3.2",
+      "files": [
+        {
+          "file": "cow/DirectContiguity320/contdird.csv",
+          "bytes": 3104061,
+          "sha256": "42b8fe2bc7fffe58665a38f7476d7d76cf3acd5a22e176c3691670997a4717f2",
+          "downloaded_at": null,
+          "url": null
+        }
+      ]
+    },
+    "polity": {
+      "version": "Polity5 (2018)",
+      "files": [
+        {
+          "file": "polity/p5v2018.xls",
+          "bytes": 4487680,
+          "sha256": "f81248561cb4fd884b0a439c7c0af298bc7f81b993bcd42e006988cb6d37a71c",
+          "downloaded_at": "2026-11-07T11:51:09+00:00",
+          "url": "https://www.systemicpeace.org/inscr/p5v2018.xls"
+        }
+      ]
+    },
+    "wdi": {
+      "version": null,
+      "files": [
+        {
+          "file": "wdi/infant_mortality.csv",
+          "bytes": 393918,
+          "sha256": "33a3798e242254dcd864e10aa76aff1d5c738ddc3274b5ad49aa80a30c4d6007",
+          "downloaded_at": "2026-11-07T11:51:10+00:00",
+          "url": "https://api.worldbank.org/v2/country/all/indicator/SP.DYN.IMRT.IN?format=json&per_page=20000&date=1960:2025"
+        },
+        {
+          "file": "wdi/population.csv",
+          "bytes": 575819,
+          "sha256": "d8ccf447a7cd17e0571823ca66a83684109f386376635c6a3e544317f4947abb",
+          "downloaded_at": "2026-11-07T11:51:10+00:00",
+          "url": "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?format=json&per_page=20000&date=1960:2025"
+        },
+        {
+          "file": "wdi/cpi_annual.csv",
+          "bytes": 350201,
+          "sha256": "0a3cd2b5b162a6ffc3fb556ffb5df70b32196e6819e3bd18d8b33636eba0c45d",
+          "downloaded_at": "2026-11-10T08:54:29+00:00",
+          "url": "https://api.worldbank.org/v2/country/all/indicator/FP.CPI.TOTL?format=json&per_page=20000&date=1960:2025"
+        }
+      ]
+    },
+    "imf": {
+      "version": null,
+      "files": [
+        {
+          "file": "imf/exchange_rates.csv",
+          "bytes": 27525170,
+          "sha256": "2373f98d78d98b7ab2d3c4f3569d40210685ecf037800c68be0790ac80e0b18d",
+          "downloaded_at": "2026-11-10T08:21:43+00:00",
+          "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/ER/+/*?c%5BINDICATOR%5D=XDC_USD&c%5BFREQUENCY%5D=M"
+        },
+        {
+          "file": "imf/reserves.csv",
+          "bytes": 24308424,
+          "sha256": "348a26871b4241c7d20aabe1e4af4f0eb5ddba83da02a7e4eb74a606eb086d37",
+          "downloaded_at": "2026-11-10T08:22:58+00:00",
+          "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/IL/+/*?c%5BINDICATOR%5D=RXF11_REVS%2CTRGMV_REVS&c%5BUNIT%5D=USD&c%5BFREQUENCY%5D=M"
+        },
+        {
+          "file": "imf/cpi.csv",
+          "bytes": 17787380,
+          "sha256": "392e8b990ad3283d374eb9cd41f98b4cf9114be4bb9d16ea306eec1eaad66968",
+          "downloaded_at": "2026-11-10T08:25:00+00:00",
+          "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/CPI/+/*?c%5BINDEX_TYPE%5D=CPI&c%5BCOICOP_1999%5D=_T&c%5BTYPE_OF_TRANSFORMATION%5D=IX&c%5BFREQUENCY%5D=M"
+        },
+        {
+          "file": "imf/interest_rates.csv",
+          "bytes": 18591002,
+          "sha256": "9be1884c3802e6c1a7253d3ac94f7fd2f4841ddbc303ad82701722ec10f2d33d",
+          "downloaded_at": "2026-11-10T08:23:56+00:00",
+          "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/MFS_IR/+/*?c%5BINDICATOR%5D=MMRT_RT_PT_A_PT%2CDISR_RT_PT_A_PT%2CMFS166_RT_PT_A_PT%2CMFS171_RT_PT_A_PT%2CIRTBILL_RT_PT_A_PT%2CMFS135_RT_PT_A_PT%2CMFS162_RT_PT_A_PT&c%5BFREQUENCY%5D=M"
+        },
+        {
+          "file": "imf/broad_money.csv",
+          "bytes": 3684133,
+          "sha256": "0ed5fabc5f3b892422d400d8c4b58c9eacdafc221ce7ac24cf685434936430b3",
+          "downloaded_at": "2026-11-10T08:31:27+00:00",
+          "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/MFS_MA/+/*?c%5BINDICATOR%5D=BM_MAI&c%5BUNIT%5D=XDC&c%5BFREQUENCY%5D=M"
+        },
+        {
+          "file": "imf/exports.csv",
+          "bytes": 2401696,
+          "sha256": "567e6a630299662c06e456e47084c32978be23f0fa1eb96a94fd9330d4daeb23",
+          "downloaded_at": "2026-11-10T08:31:35+00:00",
+          "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/ITG/+/*?c%5BINDICATOR%5D=XG&c%5BTYPE_OF_TRANSFORMATION%5D=FOB_USD&c%5BFREQUENCY%5D=M"
+        }
+      ]
+    },
+    "gmd": {
+      "version": "2026_09",
+      "files": [
+        {
+          "file": "gmd/GMD_2026_09.dta",
+          "bytes": 58991450,
+          "sha256": "ab3b82e57ff92fc8a80cab691de94123c9891d9f6f5940389c2878c2390c3b4b",
+          "downloaded_at": "2026-11-10T08:59:24+00:00",
+          "url": "https://gmd-releases.s3.ap-southeast-2.amazonaws.com/data/distribute/GMD_2026_09.dta"
+        }
+      ]
+    },
+    "bis": {
+      "version": null,
+      "files": [
+        {
+          "file": "bis/WS_TC_csv_flat.csv",
+          "bytes": 74469734,
+          "sha256": "923875fe3cd49e53a8941636f08b87acd03e5ddd2c12638bb0b67aad948959a4",
+          "downloaded_at": null,
+          "url": null
+        }
+      ]
+    },
+    "jst": {
+      "version": "R6",
+      "files": [
+        {
+          "file": "jst/JSTdatasetR6.xlsx",
+          "bytes": 1408158,
+          "sha256": "c1bb91fe56ea50d4f27af5c0fc897d481e89ae38ce41eaecab62134c9354981d",
+          "downloaded_at": "2026-11-10T08:59:25+00:00",
+          "url": "https://www.macrohistory.net/app/download/9834512569/JSTdatasetR6.xlsx?t=1763503850"
+        }
+      ]
+    },
+    "lv": {
+      "version": "IMF WP/18/206",
+      "files": [
+        {
+          "file": "lv/wp18206.pdf",
+          "bytes": 2611489,
+          "sha256": "e2c008d0cd9e12b336441f4eb9a10d0787dcb702e466437686dc21a70216f1e9",
+          "downloaded_at": null,
+          "url": "https://www.imf.org/-/media/Files/Publications/WP/2018/wp18206.ashx"
+        }
+      ]
+    }
+  }
+}

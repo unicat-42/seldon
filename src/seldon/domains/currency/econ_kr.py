@@ -61,7 +61,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from seldon import DATA_PROCESSED, REPORTS
+from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.core.calibration import binned_rate
 from seldon.core.entities import ISO3_TO_SHORT, POST_SOVIET_ISO3
 from seldon.core.metrics import auc, auc_within, brier
@@ -178,6 +178,10 @@ def _signal(df: pd.DataFrame, ind: str, side: str, pct: int, ref: pd.DataFrame) 
     t = df.iso3.map(thr).fillna(pooled)
     x = df[ind]
     sig = (x <= t) if side == "low" else (x >= t)
+    # Порог-процентиль страны может оказаться ровно нулём (жёсткая привязка: курс не менялся
+    # большую часть истории, и 80-й процентиль `deval12` = 0). Тогда «изменение = 0» сигналом
+    # не считаем — иначе у привязанных валют «девальвация за 12 мес» горела бы постоянно.
+    sig &= ~((t == 0) & (x == 0))
     return sig.astype(float).where(x.notna())
 
 
@@ -279,7 +283,7 @@ def metrics(pred: pd.DataFrame, mask: pd.Series | None = None) -> pd.DataFrame:
         rows.append({"model": m, "n": int(ok.sum()), "crisis_windows": int(d.y[ok].sum()),
                      "brier": brier(d.y[ok], d[m][ok]),
                      "auc": auc(d.y[ok], d[m][ok]),
-                     "auc_within_year": auc_within(d.y[ok], d[m][ok], d.month[ok].dt.year, compact=True)})
+                     "auc_within_year": auc_within(d.y[ok], d[m][ok], d.month[ok].dt.year)})
     return pd.DataFrame(rows)
 
 
@@ -348,30 +352,30 @@ def main(argv: list[str]) -> int:
     p.assign(month=p.month.astype(str)).to_parquet(DATA_PROCESSED / f"econ_kr_panel{suffix}.parquet", index=False)
 
     cov = coverage(p)
-    cov.to_csv(REPORTS / f"econ_kr_coverage{suffix}.csv", index=False)
+    cov.to_csv(REPORTS / f"econ_kr_coverage{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     print("\nПокрытие постсоветских стран:")
     print(cov[["country", "fx_from", "reserves_from", "cpi_from", "cpi_filled_months", "rate_from", "n_crises", "n_deval15"]].to_string(index=False))
 
     cr = p[(p.crisis == 1) & p.post_soviet][["iso3", "month", "de", "dr", "emp_z"]].copy()
     cr["country"] = cr.iso3.map(ISO3_TO_SHORT)
     cr["month"] = cr.month.astype(str)
-    cr.to_csv(REPORTS / f"econ_kr_crises_post_soviet{suffix}.csv", index=False)
+    cr.to_csv(REPORTS / f"econ_kr_crises_post_soviet{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     print("\nПостсоветские кризисы по EMP:")
     print(cr[["country", "month", "de", "dr", "emp_z"]].round(2).to_string(index=False))
 
     print("\nМодели вслепую…")
     pred, thr = run_models(p)
     pred.assign(month=pred.month.astype(str)).to_parquet(DATA_PROCESSED / f"econ_kr_predictions{suffix}.parquet", index=False)
-    thr.to_csv(REPORTS / f"econ_kr_thresholds{suffix}.csv", index=False)
+    thr.to_csv(REPORTS / f"econ_kr_thresholds{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
 
     m_all = metrics(pred).assign(sample="world")
     m_ps = metrics(pred, pred.post_soviet).assign(sample="post_soviet")
     m = pd.concat([m_all, m_ps])
-    m.to_csv(REPORTS / f"econ_kr_metrics{suffix}.csv", index=False)
+    m.to_csv(REPORTS / f"econ_kr_metrics{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     print(f"\nМетрики вслепую {FIRST_EVAL_YEAR}–{LAST_EVAL_YEAR}, целевая {target} в ближайшие {H} мес:")
     print(m.round(4).to_string(index=False))
     by = metrics_by_year(pred)
-    by.to_csv(REPORTS / f"econ_kr_metrics_by_year{suffix}.csv", index=False)
+    by.to_csv(REPORTS / f"econ_kr_metrics_by_year{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     wins = by.pivot(index="year", columns="model", values="auc")
     print(f"\n  по AUC лучше base_rate: pressure в {int((wins.pressure > wins.base_rate).sum())} годах из {len(wins)}, "
           f"signals в {int((wins.signals > wins.base_rate).sum())}, logit в {int((wins.logit > wins.base_rate).sum())}; "
@@ -385,7 +389,7 @@ def main(argv: list[str]) -> int:
         print(t.round(2).to_string())
 
     tab = pre_crisis_table(p, pred)
-    tab.to_csv(REPORTS / f"econ_kr_pre_crisis_table{suffix}.csv", index=False)
+    tab.to_csv(REPORTS / f"econ_kr_pre_crisis_table{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     print("\nПостсоветские кризисы: место среди стран мира (1 = самый рискованный) за 12 / 6 / 3 месяца до:")
     cols = ["country", "crisis_month", "pressure_rank_12m", "signals_rank_12m", "logit_rank_12m",
             "pressure_rank_6m", "signals_rank_6m", "logit_rank_6m",

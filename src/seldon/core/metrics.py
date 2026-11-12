@@ -51,25 +51,16 @@ def auc_by_group(y, p, groups) -> list[float]:
     return [auc(g.y, g.p) for _, g in d.groupby("g")]
 
 
-def mean_defined(values, compact: bool = False) -> float:
-    """Среднее по определённым (не NaN) значениям; NaN, если таких нет.
-
-    `compact` выбирает порядок суммирования и на смысл не влияет: False — как `np.nanmean`
-    (пропуски заменяются нулями на своих местах), True — сначала выбросить пропуски, потом
-    сложить. Результаты расходятся в 16-м знаке. Оба режима оставлены на чекпоинте 2.1,
-    чтобы таблицы совпали с эталоном до последнего знака (месячный валютный блок исторически
-    считал вторым способом, остальные — первым); свести к одному — при первом пересчёте,
-    который и так меняет цифры (чекпоинт 2.2)."""
+def mean_defined(values) -> float:
+    """Среднее по определённым (не NaN) значениям; NaN, если таких нет."""
     a = np.asarray(values, dtype=float)
     valid = a[~np.isnan(a)]
-    if len(valid) == 0:
-        return np.nan
-    return float(np.mean(valid)) if compact else float(np.nanmean(a))
+    return float(np.mean(valid)) if len(valid) else np.nan
 
 
-def auc_within(y, p, groups, compact: bool = False) -> float:
+def auc_within(y, p, groups) -> float:
     """Среднее AUC по группам (по годам), где он определён."""
-    return mean_defined(auc_by_group(y, p, groups), compact=compact)
+    return mean_defined(auc_by_group(y, p, groups))
 
 
 def year_block_bootstrap(pred: pd.DataFrame, stat: Callable[[pd.DataFrame], object], n_boot: int = 500,

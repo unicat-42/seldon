@@ -64,7 +64,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from seldon import DATA_PROCESSED, REPORTS
+from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.core.entities import ISO3_TO_SHORT, POST_SOVIET_ISO3, shared_currency_table
 from seldon.core.metrics import auc, auc_within, brier
 from seldon.core.panel import full_grid, lag_columns
@@ -232,13 +232,13 @@ def main(argv: list[str]) -> int:
     print("\nМодели вслепую…")
     pred, coefs = run_models(p, last_eval)
     pred.to_parquet(DATA_PROCESSED / f"econ_long_predictions{suffix}.parquet", index=False)
-    coefs.to_csv(REPORTS / f"econ_long_coefficients{suffix}.csv")
+    coefs.to_csv(REPORTS / f"econ_long_coefficients{suffix}.csv", float_format=FLOAT_FORMAT)
     met = metrics(pred)
-    met.to_csv(REPORTS / f"econ_long_metrics{suffix}.csv", index=False)
+    met.to_csv(REPORTS / f"econ_long_metrics{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     print(f"\nМетрики, целевая {target} в t+1/t+2:")
     print(met.round(3).to_string(index=False))
     by = metrics_by_year(pred)
-    by.to_csv(REPORTS / f"econ_long_metrics_by_year{suffix}.csv", index=False)
+    by.to_csv(REPORTS / f"econ_long_metrics_by_year{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     ok = by[by.logit_long_auc.notna() & by.logit_short_auc.notna()]
     print(f"\n  long лучше short по AUC внутри года: логит в {int((ok.logit_long_auc > ok.logit_short_auc).sum())} из {len(ok)} лет, "
           f"деревья в {int((ok.extree_long_auc > ok.extree_short_auc).sum())}")
@@ -246,7 +246,7 @@ def main(argv: list[str]) -> int:
     print("\nКоэффициенты logit_long (последняя модель, стандартизованные):")
     print(last.sort_values(key=abs, ascending=False).round(3).to_string())
     tab = pre_crisis_table(p, pred, target)
-    tab.to_csv(REPORTS / f"econ_long_pre_crisis_table{suffix}.csv", index=False)
+    tab.to_csv(REPORTS / f"econ_long_pre_crisis_table{suffix}.csv", index=False, float_format=FLOAT_FORMAT)
     print("\nПостсоветские кризисы: место среди стран за год до (1 = самый рискованный):")
     print(tab.to_string(index=False))
     return 0

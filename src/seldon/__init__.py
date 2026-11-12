@@ -18,3 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_RAW = PROJECT_ROOT / "data" / "raw"
 DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
 REPORTS = PROJECT_ROOT / "reports"
+
+# Все таблицы в reports/ и forecasts/ пишутся с 6 знаками после запятой: многопоточные
+# деревья (`ExtraTrees`, `n_jobs=-1`) дают шум в 17-м знаке от запуска к запуску, и без
+# округления повторный `make all` менял бы файлы в git.
+FLOAT_FORMAT = "%.6f"

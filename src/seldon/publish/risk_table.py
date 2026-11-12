@@ -25,10 +25,11 @@
      своего валютного риска нет, вероятность пустая; `no_imf_fx` — валюта своя, но курса
      в данных МВФ нет (Туркменистан), прогноз посчитать не на чем.
   3. Банковский кризис (`econ_boe_em`): прогноз «на 1 января 2025» (данные по 2023) → кризис
-     в 2025–26 и «на 1 января 2026» (данные по 2024) → 2026–27. Оценки GMD за 2025 год в
-     прогноз больше не попадают. Деревья BoE с JST
-     (`jst_extree`) и объединённые (`pooled_extree`), наборы `full`, `core`, `nomoney`.
-     Свои данные — только годы с размеченной хроникой кризисов (≤ 2015), JST — ≤ 2018.
+     в 2025–26 и «на 1 января 2026» (данные по 2024) → 2026–27. В витрину идёт ТОЛЬКО набор
+     `full` (с кривой доходности): вслепую на странах вне JST сквозной AUC 0,67 [0,52; 0,80],
+     внутри года 0,75, всего 9 предкризисных лет — покрытие узкое. Колонка `bank_status`
+     объясняет, почему прогноза нет (см. `bank_risk`). Наборы без ставок (`core`, `nomoney`)
+     в витрину не идут: после лага публикации они не отличаются от монетки.
 
 Выход:
     reports/risk_2025_26.csv — все страны;
@@ -158,38 +159,43 @@ def fx_annual_risk() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
+BANK_SET = "full"  # единственный набор признаков, который идёт в витрину (см. docstring)
+
+
 def bank_risk() -> pd.DataFrame:
+    """Банковский прогноз для витрины: только деревья BoE с переносом с JST на наборе `full`
+    (с кривой доходности). Наборы без ставок (`nomoney`, `core`) после лага публикации не
+    отличаются от монетки (сквозной AUC 0,55 [0,41; 0,65] и 0,52) — их вероятности и ранги
+    не публикуем; цифры остаются в `econ_boe_em` и `scorecard`.
+    Колонки: iso3, bank_features_year, bank_jst_extree_full, rank_bank_jst_extree_full,
+    bank_status — почему прогноз есть или почему его нет:
+        ok              прогноз есть;
+        no_yield_curve  страна есть в кредитной статистике BIS, но нет длинной ставки (Россия);
+        no_broad_money  длинная ставка есть, но нет своей денежной массы (еврозона);
+        no_bis_credit   нет кредитного ряда BIS (большинство стран мира)."""
     cfg = econ_boe_em.Config(last_year=BANK_YEARS[-1])
     panel = econ_boe_em.load_panel(cfg)
-    jst = load_jst(JST_R6, "Sheet1")
-    frames: dict[str, list[pd.DataFrame]] = {}
-    for tag, feats in econ_boe_em.FEATURE_SETS.items():
-        data = econ_boe_em.build(panel, feats, cfg.macro_lag)
-        jst_d = econ_boe_em.boe_dataset(jst, feats, cfg.macro_lag)
-        jst_d = jst_d[jst_d.year <= econ_boe_em.JST_LAST_LABEL_YEAR - 2]
-        train_own = data[data.year <= cfg.last_label_year - 2]  # дальше хроника не размечена
-        lo, hi = jst_d[feats].min(), jst_d[feats].max()
-        q1, q99 = train_own[feats].quantile(0.01), train_own[feats].quantile(0.99)
-        jst_et = econ_boe_em.make_models()["extree"].fit(jst_d[feats].values, jst_d.crisis.values)
-        pooled = pd.concat([jst_d, train_own])
-        pooled_et = econ_boe_em.make_models()["extree"].fit(pooled[feats].clip(q1, q99, axis=1).values, pooled.crisis.values)
-        own_lr = econ_boe_em.make_models()["logreg"].fit(train_own[feats].clip(q1, q99, axis=1).values, train_own.crisis.values)
-        for y in BANK_YEARS:
-            t = data[data.year == y].copy()
-            if t.empty:
-                continue
-            t[f"bank_jst_extree_{tag}"] = jst_et.predict_proba(t[feats].clip(lo, hi, axis=1).values)[:, 1]
-            t[f"bank_pooled_extree_{tag}"] = pooled_et.predict_proba(t[feats].clip(q1, q99, axis=1).values)[:, 1]
-            t[f"bank_own_logreg_{tag}"] = own_lr.predict_proba(t[feats].clip(q1, q99, axis=1).values)[:, 1]
-            t["bank_features_year"] = y
-            keep = [f"bank_jst_extree_{tag}", f"bank_pooled_extree_{tag}", f"bank_own_logreg_{tag}"]
-            if tag == "nomoney":  # признаки кредита одни и те же во всех наборах, берём из самого широкого
-                keep += ["tloan_gdp_rdiff2", "global_loan2"]
-            frames.setdefault(tag, []).append(t.set_index(["iso", "bank_features_year"])[keep])
-    out = pd.concat([pd.concat(v) for v in frames.values()], axis=1).reset_index().rename(columns={"iso": "iso3"})
-    for c in [c for c in out.columns if c.startswith("bank_") and c != "bank_features_year"]:
-        out[f"rank_{c}"] = out.groupby("bank_features_year")[c].rank(ascending=False, method="min")
-    return out
+    feats = econ_boe_em.FEATURE_SETS[BANK_SET]
+    data = econ_boe_em.build(panel, feats, cfg.macro_lag)
+    jst_d = econ_boe_em.boe_dataset(load_jst(JST_R6, "Sheet1"), feats, cfg.macro_lag)
+    jst_d = jst_d[jst_d.year <= econ_boe_em.JST_LAST_LABEL_YEAR - 2]
+    lo, hi = jst_d[feats].min(), jst_d[feats].max()
+    jst_et = econ_boe_em.make_models()["extree"].fit(jst_d[feats].values, jst_d.crisis.values)
+    col = f"bank_jst_extree_{BANK_SET}"
+    frames = []
+    for y in BANK_YEARS:
+        rows = panel[panel.year == y].set_index("iso")
+        t = data[data.year == y].set_index("iso")
+        out = pd.DataFrame({"iso3": rows.index, "bank_features_year": y})
+        p = pd.Series(jst_et.predict_proba(t[feats].clip(lo, hi, axis=1).values)[:, 1], index=t.index) if len(t) else pd.Series(dtype=float)
+        out[col] = out.iso3.map(p)
+        out[f"rank_{col}"] = out[col].rank(ascending=False, method="min")
+        # ставки — рыночные, берутся за год y; денежная масса — макроряд с лагом
+        no_curve = rows.ltrate.isna() | rows.stir.isna()
+        out["bank_status"] = np.where(out[col].notna(), "ok",
+                                      np.where(out.iso3.map(no_curve), "no_yield_curve", "no_broad_money"))
+        frames.append(out)
+    return pd.concat(frames, ignore_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -204,11 +210,13 @@ def main(argv: list[str]) -> int:
     fxa = fx_annual_risk()
     print("3/4 банковский кризис…")
     bank = bank_risk()
-    bank24 = bank[bank.bank_features_year == 2024].drop(columns="bank_features_year").add_suffix("_2025_26").rename(columns={"iso3_2025_26": "iso3"})
-    bank25 = bank[bank.bank_features_year == 2025].drop(columns="bank_features_year").add_suffix("_2026_27").rename(columns={"iso3_2026_27": "iso3"})
+    # статус покрытия — по основному прогнозу (на 2026–27); прогноз на 2025–26 — для сверки
+    bank24 = bank[bank.bank_features_year == 2024].drop(columns=["bank_features_year", "bank_status"]).add_suffix("_2025_26").rename(columns={"iso3_2025_26": "iso3"})
+    bank25 = bank[bank.bank_features_year == 2025].drop(columns="bank_features_year").add_suffix("_2026_27").rename(columns={"iso3_2026_27": "iso3", "bank_status_2026_27": "bank_status"})
 
     t = (war.merge(fx, on="iso3", how="outer").merge(fxa, on="iso3", how="outer")
             .merge(bank24, on="iso3", how="left").merge(bank25, on="iso3", how="left"))
+    t["bank_status"] = t.bank_status.fillna("no_bis_credit")
     t["post_soviet"] = t.iso3.isin(POST_SOVIET_ISO3)
     t["country"] = t.iso3.map(ISO3_TO_SHORT).fillna(t.country_ucdp).fillna(t.iso3)
     # режим валюты: own — своя (свой риск девальвации); иначе код общей/чужой валюты, прогноза нет
@@ -234,11 +242,9 @@ def main(argv: list[str]) -> int:
           f"место среди {fx.iso3.nunique()} стран; база {fx.fx_deval15_base_rate.iloc[0]:.3f}) и индикаторы текущего стресса (не вероятности):")
     print(ps[["country", "fx_regime", "as_of", "fx_deval15_12m", "rank_fx_deval15_12m", "deval15_last_12m",
               "emp_z_max3", "reserves_g12", "deval12", "infl12", "signals_fired"]].round(3).to_string(index=False))
-    print("\nБанковский кризис (только страны BIS): признаки 2024 → 2025–26 и 2025 → 2026–27:")
-    bcols = ["country", "bank_jst_extree_nomoney_2025_26", "rank_bank_jst_extree_nomoney_2025_26", "bank_pooled_extree_nomoney_2025_26",
-             "bank_jst_extree_core_2025_26", "bank_jst_extree_full_2025_26", "bank_jst_extree_nomoney_2026_27",
-             "bank_jst_extree_full_2026_27", "tloan_gdp_rdiff2_2025_26", "tloan_gdp_rdiff2_2026_27"]
-    print(ps[ps.bank_jst_extree_nomoney_2025_26.notna() | ps.bank_jst_extree_nomoney_2026_27.notna()][bcols].round(3).to_string(index=False))
+    print("\nБанковский кризис (деревья BoE, набор `full`; есть только у стран BIS с длинной ставкой и своей денежной массой):")
+    print(ps[["country", "bank_status", "bank_jst_extree_full_2026_27", "rank_bank_jst_extree_full_2026_27"]].round(3).to_string(index=False))
+    print("  покрытие по миру:", t.bank_status.value_counts().to_dict())
 
     print("\n=== Топ-15 мира ===")
     print("Государственная война ≥ 25 в 2025, страны под риском:")
@@ -249,12 +255,9 @@ def main(argv: list[str]) -> int:
     print("\nСкачок курса ≥ 15 % в ближайшие 12 мес (`deval15`, логрегрессия):")
     print(t.nlargest(15, "fx_deval15_12m")[["country", "as_of", "fx_deval15_12m", "deval15_last_12m", "emp_z_max3", "deval12",
                                              "infl12", "signals_fired"]].round(3).to_string(index=False))
-    n26 = t.bank_jst_extree_nomoney_2025_26.notna().sum()
-    print(f"\nБанковский кризис 2025–26, `jst_extree` (nomoney, {n26} стран; core и full — где есть):")
-    print(t.nlargest(15, "bank_jst_extree_nomoney_2025_26")[["country", "bank_jst_extree_nomoney_2025_26", "bank_jst_extree_core_2025_26",
-                                                              "bank_jst_extree_full_2025_26", "bank_pooled_extree_nomoney_2025_26", "tloan_gdp_rdiff2_2025_26"]].round(3).to_string(index=False))
-    print("\nБанковский кризис 2026–27 (предварительно), `jst_extree` (nomoney):")
-    print(t.nlargest(15, "bank_jst_extree_nomoney_2026_27")[["country", "bank_jst_extree_nomoney_2026_27", "bank_jst_extree_core_2026_27",
-                                                              "bank_jst_extree_full_2026_27", "tloan_gdp_rdiff2_2026_27"]].round(3).to_string(index=False))
+    n27 = t.bank_jst_extree_full_2026_27.notna().sum()
+    print(f"\nБанковский кризис 2026–27, `jst_extree` (набор full, {n27} стран); рядом — прогноз на 2025–26:")
+    print(t.nlargest(15, "bank_jst_extree_full_2026_27")[["country", "bank_jst_extree_full_2026_27", "rank_bank_jst_extree_full_2026_27",
+                                                           "bank_jst_extree_full_2025_26"]].round(3).to_string(index=False))
     return 0
 

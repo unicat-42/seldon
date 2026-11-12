@@ -15,3 +15,7 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Кэши инструментов
+.pytest_cache/
+.ruff_cache/

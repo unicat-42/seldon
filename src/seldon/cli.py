@@ -31,6 +31,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     # evaluation, publish
     "scorecard": ("seldon.evaluation.scorecard", "сводная таблица качества основных моделей с интервалами"),
     "risk_table": ("seldon.publish.risk_table", "таблица риска 2025–27 → reports/risk_2025_26.csv"),
+    "vintage": ("seldon.publish.vintage", "заморозить прогнозы: vintage [ГГГГ-ММ] → forecasts/ГГГГ-ММ/"),
     # research — вне боевого конвейера
     "pitf": ("seldon.research.pitf", "[research] повторение модели PITF на их данных"),
     "compare_cf": ("seldon.research.compare_cf", "[research] сравнение с conflictforecast"),

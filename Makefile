@@ -5,6 +5,7 @@
 #                   прогноз «на 1 апреля» (`apr1` — макроданные без лага публикации)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make test       автотесты на утечки будущего (секунды)
+#   make vintage    заморозить прогнозы в forecasts/ГГГГ-ММ/ (после `make all`; раз в месяц)
 #   make data       скачать сырые данные (Laeven–Valencia — PDF руками, см. подсказку команды)
 #
 # Все команды — `uv run python -m seldon <команда>`; список: `uv run python -m seldon`.
@@ -12,7 +13,7 @@
 
 RUN = uv run python -m seldon
 
-.PHONY: all variants replicate test data
+.PHONY: all variants replicate test data vintage
 
 # Порядок важен: панель войн → признаки → база → модель войн → хроника LV → месячный
 # валютный блок (ему нужна месячная панель войн) → годовой валютный (нужна LV) →
@@ -64,3 +65,6 @@ test:
 
 data:
 	$(RUN) download all
+
+vintage:
+	$(RUN) vintage

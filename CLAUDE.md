@@ -81,7 +81,9 @@
   `econ_long` → `econ_boe_em` → `risk_table` → `scorecard`.
   `make variants` — срезы для сравнения (старые целевые, бустинг, `all_currencies`, другие
   хроники, прогноз «на 1 апреля» — `apr1`); `make replicate` — повторение статьи Банка Англии (`econ_boe`, ≈ 10 минут);
-  `make test` — автотесты; `make data` — скачать сырые данные (`download all`).
+  `make test` — автотесты; `make data` — скачать сырые данные (`download all`);
+  `make vintage` — заморозить прогнозы в `forecasts/ГГГГ-ММ/` (после `make all`, раз в месяц;
+  готовый снимок не перезаписывать).
 - Примеры: `uv run python -m seldon model_hist pitf logit state_war25`,
   `uv run python -m seldon econ_kr deval15`, `uv run python -m seldon download imf`.
 - Ноутбуки: `uv run jupyter lab`.
@@ -92,7 +94,8 @@
 data/raw/        сырые скачанные файлы (не в git)
 data/processed/  обработанные таблицы (не в git)
 notebooks/       ноутбуки разведки и экспериментов
-reports/         отчёты и итоги
+reports/         отчёты и итоги (что актуально, а что архив — `reports/README.md`)
+forecasts/       замороженные снимки прогнозов по месяцам (неизменяемые)
 tests/           автотесты (pytest): утечки будущего, коды стран
 ROADMAP.md       план этапов после аудита
 Makefile         пересчёт всего с нуля
@@ -112,7 +115,7 @@ src/seldon/      код, пять слоёв + исследовательски�
                      годовой: long_targets, long_features, econ_long
     banking/         econ_boe (повторение статьи BoE), econ_boe_em (перенос на страны BIS)
   evaluation/      backtest (единый цикл проверки вслепую), scorecard (сводка качества)
-  publish/         risk_table (витрина)
+  publish/         risk_table (витрина), vintage (замороженный снимок прогнозов)
   research/        разовые блоки вне конвейера: pitf, compare_cf, econ_panel, news_ru,
                    behavior_ru, behavior_world
 ```
@@ -316,6 +319,18 @@ src/seldon/      код, пять слоёв + исследовательски�
   0,650 → 0,640. Таблица риска пересобрана «на 1 января». Не покрыто: задержка месячных
   данных МВФ, выход UCDP GED, ревизии рядов. Дальше: чекпоинт 2.3; до него решить судьбу
   банковской модели в витрине и шум деревьев в 17-м знаке.
+- **Этап 2, чекпоинт 2.3 — винтаж, README, CI** (сделано 12.11.2026, см.
+  `reports/2026-11-12-session-stage2-vintage.md`); Этап 2 закрыт. Первый замороженный
+  снимок `forecasts/2026-11/` (`predictions.csv`, `metadata.json`; команда `vintage`,
+  `make vintage`) — начало проспективного трек-рекорда; существующий снимок не
+  перезаписывается. Решения Ангелины: в витрине банковский прогноз только на наборе `full`
+  (26 стран) с колонкой `bank_status` (`ok` / `no_yield_curve` — Россия / `no_broad_money` —
+  еврозона / `no_bis_credit`); наборы без ставок — только в `scorecard`; сигнал при нулевом
+  пороге-процентиле не зажигается нулевым изменением (модель `signals` на `deval15`: 0,584 →
+  0,603); все таблицы пишутся с явным форматом чисел — повторный `make all` не даёт диффов.
+  Публичный `README.md`, CI (`.github/workflows/ci.yml`: pytest + pyflakes), индекс таблиц
+  `reports/README.md` (что актуально, что архив до аудита). Не сделано: `git push` (CI на
+  GitHub не проверен), лицензия. Дальше: Этап 3.
 
 ## Постсоветские страны (фокус)
 

@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from seldon import DATA_PROCESSED, REPORTS
+from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.core.metrics import auc, auc_within, brier
 from seldon.core.panel import lag_columns
 from seldon.core.temporal import label_known, publication_lag
@@ -316,7 +316,7 @@ def main(argv: list[str]) -> int:
     panel = load_panel(cfg)
     panel.to_parquet(DATA_PROCESSED / f"boe_em_panel{sfx}.parquet", index=False)
     cov = coverage(panel)
-    cov.to_csv(REPORTS / f"boe_em_coverage{sfx}.csv", index=False)
+    cov.to_csv(REPORTS / f"boe_em_coverage{sfx}.csv", index=False, float_format=FLOAT_FORMAT)
     print("Покрытие развивающихся стран (GMD + BIS):\n", cov.to_string(index=False))
 
     jst = load_jst(JST_R6, "Sheet1")
@@ -331,18 +331,18 @@ def main(argv: list[str]) -> int:
         coefs.append(c)
     pred = pd.concat(preds, ignore_index=True)
     pred.to_parquet(DATA_PROCESSED / f"boe_em_predictions{sfx}.parquet", index=False)
-    pd.concat(coefs, axis=1).round(3).to_csv(REPORTS / f"boe_em_coefficients{sfx}.csv")
+    pd.concat(coefs, axis=1).round(3).to_csv(REPORTS / f"boe_em_coefficients{sfx}.csv", float_format=FLOAT_FORMAT)
 
     met = metrics(pred)
-    met.to_csv(REPORTS / f"boe_em_metrics{sfx}.csv", index=False)
+    met.to_csv(REPORTS / f"boe_em_metrics{sfx}.csv", index=False, float_format=FLOAT_FORMAT)
     print(f"\nМетрики вслепую {FIRST_EVAL_YEAR}–{cfg.last_label_year - 2}, метка {cfg.label}, целевая: банковский кризис в t+1 или t+2:")
     print(met.round(3).to_string(index=False))
-    metrics_by_year(pred).to_csv(REPORTS / f"boe_em_metrics_by_year{sfx}.csv", index=False)
+    metrics_by_year(pred).to_csv(REPORTS / f"boe_em_metrics_by_year{sfx}.csv", index=False, float_format=FLOAT_FORMAT)
 
     cr = panel[(panel.crisisJST == 1) & panel.em][["iso", "country", "year"]]
-    cr.to_csv(REPORTS / f"boe_em_crises{sfx}.csv", index=False)
+    cr.to_csv(REPORTS / f"boe_em_crises{sfx}.csv", index=False, float_format=FLOAT_FORMAT)
     tab = pre_crisis_table(panel, pred)
-    tab.to_csv(REPORTS / f"boe_em_pre_crisis_table{sfx}.csv", index=False)
+    tab.to_csv(REPORTS / f"boe_em_pre_crisis_table{sfx}.csv", index=False, float_format=FLOAT_FORMAT)
     show = ["country", "crisis_year", "feature_set", "n_countries", "jst_logreg_rank", "jst_extree_rank",
             "own_logreg_rank", "own_extree_rank", "pooled_extree_rank"]
     print("\nКризисы развивающихся стран: место среди стран за год до (1 = самый рискованный):")

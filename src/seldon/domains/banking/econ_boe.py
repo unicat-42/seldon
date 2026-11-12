@@ -46,7 +46,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from seldon import DATA_PROCESSED, REPORTS
+from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.sources.jst import JST_R3, JST_R6, load_boe_table, load_jst
 
 HORIZON = 2
@@ -263,9 +263,9 @@ def main(argv: list[str]) -> int:
         nxt.to_parquet(DATA_PROCESSED / f"boe_forecast_next_year_{tag}.parquet", index=False)
         results[tag] = (cv, by, summ, coefs)
 
-    pd.concat([results[t][0] for t in ("r3", "r6")]).to_csv(REPORTS / "boe_cv_results.csv", index=False)
-    pd.concat([results[t][1] for t in ("r3", "r6")]).to_csv(REPORTS / "boe_forecast_by_year.csv", index=False)
-    pd.concat([results[t][2] for t in ("r3", "r6")]).to_csv(REPORTS / "boe_forecast_summary.csv", index=False)
-    results["r6"][3].round(4).to_csv(REPORTS / "boe_coefficients.csv")
+    pd.concat([results[t][0] for t in ("r3", "r6")]).to_csv(REPORTS / "boe_cv_results.csv", index=False, float_format=FLOAT_FORMAT)
+    pd.concat([results[t][1] for t in ("r3", "r6")]).to_csv(REPORTS / "boe_forecast_by_year.csv", index=False, float_format=FLOAT_FORMAT)
+    pd.concat([results[t][2] for t in ("r3", "r6")]).to_csv(REPORTS / "boe_forecast_summary.csv", index=False, float_format=FLOAT_FORMAT)
+    results["r6"][3].round(4).to_csv(REPORTS / "boe_coefficients.csv", float_format=FLOAT_FORMAT)
     return 0
 

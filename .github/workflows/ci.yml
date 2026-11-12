@@ -1,0 +1,22 @@
+# Быстрая проверка на каждый push и pull request: тесты на утечки будущего и статический
+# анализ. Сырые данные не нужны — тесты работают на маленьких синтетических панелях (секунды).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Зависимости
+        run: uv sync --locked
+      - name: Тесты (утечки будущего, лаги публикации, коды стран)
+        run: uv run pytest -q
+      - name: Статический анализ (pyflakes)
+        run: uvx pyflakes src tests
