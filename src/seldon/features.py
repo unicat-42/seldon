@@ -21,10 +21,10 @@
                        целевых (war25…) — как раньше, deaths_best + deaths_party
     war_years_10       сколько из последних 10 лет страна воевала
     decay_1/3          затухающая память о целевой с полураспадом 1 и 3 года (как в baseline)
-    nb_war_share       доля соседей, воюющих в году T (нет соседей → 0)
+    nb_war_share       доля соседей с войной НА СВОЕЙ территории в году T (нет соседей → 0)
     nb_war_any         1, если хотя бы один сосед воюет
     nb_onset_any       1, если у кого-то из соседей в году T началась война
-    nb_log_deaths_1    log(1 + погибшие у всех соседей за год T)
+    nb_log_deaths_1    log(1 + погибшие на территории всех соседей за год T)
 """
 
 from __future__ import annotations
@@ -70,12 +70,24 @@ def own_history(panel: pd.DataFrame, target: str) -> pd.DataFrame:
 
 
 def neighbor_features(p: pd.DataFrame, neighbors: set, target: str) -> pd.DataFrame:
-    """Для каждой (страна, год): что происходит у соседей в этом же году."""
+    """Для каждой (страна, год): что происходит у соседей в этом же году.
+
+    Соседская война считается строго по боям НА ТЕРРИТОРИИ самого соседа: погибшие —
+    `deaths_state`, «сосед воюет» — `deaths_state ≥ 25`, начало — то же после тихого года.
+    До правки 12.11.2026 брались `deaths_war` и `state_war25` соседа, куда входят его потери
+    как стороны на ЧУЖОЙ территории: бои в Украине через Россию «перетекали» вторым шагом
+    ко всем соседям России — Китаю по Амуру и США через Берингов пролив.
+    Для старых целевых (war25…) — как раньше, по целевой соседа и deaths_any."""
     nb = pd.DataFrame(list(neighbors), columns=["gw", "nb", "year"])
-    onset_col = ONSET_OF[target]
-    state = p[["gw", "year", target, onset_col, "deaths_any"]].rename(
-        columns={"gw": "nb", target: "nb_war", onset_col: "nb_onset", "deaths_any": "nb_deaths"}
-    )
+    if target in OLD_TARGETS:
+        state = p[["gw", "year", target, ONSET_OF[target], "deaths_any"]].rename(
+            columns={"gw": "nb", target: "nb_war", ONSET_OF[target]: "nb_onset", "deaths_any": "nb_deaths"})
+    else:
+        q = p.sort_values(["gw", "year"])
+        terr = (q.deaths_state >= 25).astype(int)
+        prev = terr.groupby(q.gw).shift(1).fillna(0)
+        state = pd.DataFrame({"nb": q.gw, "year": q.year, "nb_war": terr,
+                              "nb_onset": ((terr == 1) & (prev == 0)).astype(int), "nb_deaths": q.deaths_state})
     nb = nb.merge(state, on=["nb", "year"], how="inner")  # соседи, которых нет в панели, выпадают
     agg = nb.groupby(["gw", "year"]).agg(
         nb_war_share=("nb_war", "mean"),

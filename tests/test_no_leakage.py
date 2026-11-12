@@ -323,6 +323,24 @@ def test_war_party_not_open_before_first_event():
     assert a.deaths_war == 480                                               # без двойного счёта «территория + сторона»
 
 
+def test_neighbor_war_does_not_teleport():
+    """Бои только в стране C; B — сосед C и сторона конфликта; A — мирный сосед B (не C).
+    Война B на чужой территории не должна доходить до A через соседские признаки."""
+    A, B, C = 1, 2, 3
+    states = pd.DataFrame({"gw": [A, B, C], "gw_name": ["A", "B", "C"], "start_year": 1989, "end_year": 1995})
+    neighbors = {(a, b, y) for a, b in [(A, B), (B, A), (B, C), (C, B)] for y in range(1989, 1996)}
+    ged = pd.DataFrame([{"gw": C, "country": "C", "year": 1992, "month": 5, "type_of_violence": 1,
+                         "best": 5000, "conflict_new_id": 7}])
+    ged["deaths_state"] = ged.best
+    parties = pd.DataFrame([{"conflict_id": 7, "year": 1992, "parties": [B, C]}])
+    year = panel.build(ged, states, parties, neighbors, monthly=False, year_from=1989, year_to=1995)
+    f = features.build_features(year, neighbors, target="state_war25").set_index(["gw", "year"])
+    assert f.loc[(B, 1992), "state_war25"] == 1                    # B воюет (сторона у соседа)
+    assert f.loc[(B, 1992), "nb_log_deaths_1"] > 8                 # и видит бои у соседа C
+    a = f.loc[(A, 1992)]
+    assert a.nb_log_deaths_1 == 0 and a.nb_war_any == 0 and a.nb_onset_any == 0 and a.nb_war_share == 0
+
+
 # ---------------------------------------------------------------------------
 # 2. Целевая и evaluable согласованы
 # ---------------------------------------------------------------------------
