@@ -24,7 +24,7 @@ uv sync
 Скачать все данные (UCDP, PITF, conflictforecast, списки государств и соседей, Polity, ВБ, JST, код BoE, GMD) в `data/raw/`:
 
 ```bash
-uv run python -m seldon.download all
+uv run python -m seldon download all
 ```
 
 Открыть ноутбуки:

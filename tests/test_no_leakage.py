@@ -13,7 +13,7 @@
    (нормировка по всей выборке) обязана этим же способом ловиться.
 2. `test_target_evaluable_sync_*` — у строки с `evaluable == True` целевая не может быть
    принудительно занулена внутренним правилом «тишины после кризиса».
-3. `test_entity_mapping` — коды стран и валютные союзы в `countries.py`.
+3. `test_entity_mapping` — коды стран и валютные союзы в `core/entities.py`.
 
 Глобальные константы модулей тесты не трогают: всё передаётся аргументами.
 """
@@ -24,7 +24,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seldon import countries, econ_boe, econ_boe_em, econ_kr, econ_long, features, model_hist, panel
+from seldon.core import entities
+from seldon.domains.banking import econ_boe, econ_boe_em
+from seldon.domains.conflict import features, model_hist, panel
+from seldon.domains.currency import econ_kr, econ_long, kr_features, kr_targets, long_features
 
 ATOL = 1e-12
 
@@ -205,7 +208,7 @@ def test_future_blindness_fx_monthly(target):
               _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]))
     assert clean[models].notna().all().all()
     assert clean.logit.nunique() > 1 and clean.emp_z_max3.nunique() > 1
-    _same(clean, bad, models + list(econ_kr.INDICATORS))
+    _same(clean, bad, models + list(kr_features.INDICATORS))
 
 
 @pytest.mark.parametrize("target", ["deval25", "gmd_cc"])
@@ -222,7 +225,7 @@ def test_future_blindness_fx_annual(target):
     num = [c for c in gmd.columns if c not in ("ISO3", "countryname", "year")]
     bad = run(_corrupt(gmd, gmd.year > T, num), _corrupt(dec, dec.year > T, ["fx_dec"]))
     assert clean[models].notna().all().all() and clean.extree.nunique() > 1
-    _same(clean, bad, models + econ_long.FEATURES)
+    _same(clean, bad, models + long_features.FEATURES)
 
 
 def test_future_blindness_banking():
@@ -286,7 +289,7 @@ def test_future_blindness_war_monthly():
     def run(ged, parties):
         _, month = _war_panels(ged, states, parties, neighbors, span)
         m = month[(month.year == as_of.year) & (month.month == as_of.month)].sort_values("gw")
-        w = econ_kr.war_features(month, gw_to_iso3={g: f"S{g:02d}" for g in WAR_STATES})
+        w = kr_features.war_features(month, gw_to_iso3={g: f"S{g:02d}" for g in WAR_STATES})
         return m, w[w.month == as_of].sort_values("iso3")
 
     m0, w0 = run(ged, parties)
@@ -358,7 +361,7 @@ def test_target_evaluable_sync_monthly(target):
     for i in rng.choice(ev[same_country], 200, replace=False):
         s = spike.copy()
         s[i + 1] = True  # всплеск в первом же месяце окна
-        onset, _ = econ_kr.onsets(pd.Series(s), p.iso3)
+        onset, _ = kr_targets.onsets(pd.Series(s), p.iso3)
         assert onset.iloc[i + 1] == 1, "строка evaluable, но кризис в её окне заблокирован правилом тишины"
 
 
@@ -378,7 +381,7 @@ def test_target_evaluable_sync_annual():
 
 
 def test_entity_mapping():
-    c = countries
+    c = entities
     # постсоветские: полная и взаимно однозначная разметка
     assert len(c.POST_SOVIET) == 15 == len(c.POST_SOVIET_GW) == len(c.POST_SOVIET_ISO3)
     for s in c.POST_SOVIET:

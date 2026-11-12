@@ -1,4 +1,15 @@
-"""Селдон: прогноз войн и экономических кризисов."""
+"""Селдон: прогноз войн и экономических кризисов.
+
+Слои (после Этапа 2, чекпоинт 2.1):
+    core/        общие кирпичи: коды стран, панели, контракт `as_of`, калибровка, метрики
+    sources/     загрузка и чтение сырых данных (единственное место, где читается data/raw)
+    domains/     признаки, целевые и модели по блокам: conflict, currency, banking
+    evaluation/  единый бэктест и сводная таблица качества (`scorecard`)
+    publish/     витрина: таблица риска
+    research/    разовые исследовательские блоки вне боевого конвейера
+
+Запуск — одна точка входа: `uv run python -m seldon <команда>` (список — без аргументов).
+"""
 
 from pathlib import Path
 
@@ -6,3 +17,4 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_RAW = PROJECT_ROOT / "data" / "raw"
 DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
+REPORTS = PROJECT_ROOT / "reports"
