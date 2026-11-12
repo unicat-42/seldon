@@ -15,7 +15,7 @@
     base_rate  одна и та же вероятность для всех стран: доля стран с конфликтом в последнем
                обучающем году.
 
-Проверка вслепую (out-of-sample): для каждого T от 1995 до 2023 используем данные
+Проверка вслепую (out-of-sample): для каждого T от 1995 до 2024 используем данные
 по год T включительно и предсказываем год T+1. Метрики за каждый год T+1:
     brier      Brier score — средний квадрат ошибки вероятности (0 — идеально, 0.25 — монетка
                на событии с частотой 50%). Чем меньше, тем лучше.
@@ -34,8 +34,9 @@ import pandas as pd
 from seldon import DATA_PROCESSED, REPORTS
 from seldon.core.metrics import auc, brier
 from seldon.domains.conflict.panel import ONSET_OF
+from seldon.sources.ucdp import YEAR_TO
 
-TRAIN_YEARS = range(1995, 2024)  # T: учимся по T, предсказываем T+1 (1996…2024)
+TRAIN_YEARS = range(1995, YEAR_TO)  # T: учимся по T, предсказываем T+1 (1996…2025)
 HALF_LIVES = (1, 3, 5)
 MODELS = ("last", "decay", "base_rate")
 DEFAULT_TARGET = "state_war25"

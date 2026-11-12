@@ -7,9 +7,11 @@ import pandas as pd
 
 from seldon import DATA_RAW
 
-YEAR_FROM, YEAR_TO = 1989, 2024  # GED покрывает 1989–2024
-GED_FILE = DATA_RAW / "ucdp" / "GEDEvent_v25_1.csv"
-ACD_FILE = DATA_RAW / "ucdp" / "UcdpPrioConflict_v25_1.csv"
+UCDP_VERSION = "26.1"  # релиз 26.1 покрывает события по 2025 год включительно
+_V = UCDP_VERSION.replace(".", "_")
+YEAR_FROM, YEAR_TO = 1989, 2025  # GED покрывает 1989–2025
+GED_FILE = DATA_RAW / "ucdp" / f"GEDEvent_v{_V}.csv"
+ACD_FILE = DATA_RAW / "ucdp" / f"UcdpPrioConflict_v{_V}.csv"
 
 
 def load_ged() -> pd.DataFrame:

@@ -18,6 +18,8 @@
     uv run python -m seldon download lenta
     uv run python -m seldon download cbr
     uv run python -m seldon download lv
+    uv run python -m seldon download vdem
+    uv run python -m seldon download epr
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -39,12 +41,13 @@ from tqdm import tqdm
 
 from seldon import DATA_RAW
 from seldon.sources.gmd import GMD_VERSION
+from seldon.sources.epr import EPR_VERSION
+from seldon.sources.ucdp import UCDP_VERSION
 
 # ---------------------------------------------------------------------------
 # Источники
 # ---------------------------------------------------------------------------
 
-UCDP_VERSION = "25.1"
 UCDP_V = UCDP_VERSION.replace(".", "")  # "251" — так в именах файлов на сайте
 
 SOURCES: dict[str, dict] = {
@@ -187,6 +190,19 @@ SOURCES: dict[str, dict] = {
         },
         "unzip": False,
     },
+    # EPR (Ethnic Power Relations, ETH Zürich) — доступ этнических групп к власти и
+    # трансграничная родня (TEK). Прямые CSV, без регистрации; см. `sources/epr.py`.
+    "epr": {
+        "files": {
+            f"EPR-{EPR_VERSION}.csv": f"https://icr.ethz.ch/data/epr/core/EPR-{EPR_VERSION}.csv",
+            f"TEK-{EPR_VERSION}.csv": f"https://icr.ethz.ch/data/epr/tek/TEK-{EPR_VERSION}.csv",
+        },
+        "unzip": False,
+        "sha256": {
+            "EPR-2023.csv": "8b4637484fb0963e6fc72306139deab655145589c9c851f312e8b231ca66cbd7",
+            "TEK-2023.csv": "26b2689eb49673629a773d95c380266cf79514beb54647d5233c6a18f54a1c96",
+        },
+    },
     # BIS — кредит частному нефинансовому сектору (total credit, WS_TC): ~45 стран, в т.ч.
     # развивающиеся (Россия, Турция, Бразилия, Китай...), поквартально с 1940–1990-х, % ВВП.
     # Длиннее рядов ВБ на 10–20 лет у развитых и с поправками на разрывы. Открытый bulk-архив.
@@ -301,6 +317,12 @@ def fetch_static(name: str) -> None:
         entry = download_file(url, folder / fname)
         if spec["unzip"] and fname.endswith(".zip"):
             entry["contents"] = unzip(folder / fname)
+        want = spec.get("sha256", {}).get(fname)
+        if want:
+            entry["sha256"] = sha256_of(folder / fname)
+            if entry["sha256"] != want:
+                raise RuntimeError(f"контрольная сумма {fname} не совпала: ожидалось {want}, получено {entry['sha256']} — "
+                                   "файл на сервере изменился, проверь версию")
         entries.append(entry)
     write_manifest(folder, entries)
 
@@ -475,8 +497,40 @@ def fetch_lv() -> None:
     write_manifest(folder, [{"url": LV_URL, "file": LV_FILE, "bytes": dest.stat().st_size, "sha256": got, "skipped": False}])
 
 
+VDEM_COMMIT = "f4dd26922e658442524dfd954bf14f7ebe622d5d"  # «v16 release», 17.03.2026
+VDEM_URL = f"https://raw.githubusercontent.com/vdeminstitute/vdemdata/{VDEM_COMMIT}/data/vdem.RData"
+VDEM_SHA256 = "39b412d39a061c18f20c98e4ad4d6355b05a0441df31be4ee9aec420dc3d95ea"
+
+
+def fetch_vdem() -> None:
+    """V-Dem v16 — файл данных официального R-пакета института (GitHub vdeminstitute/vdemdata),
+    ссылка закреплена на коммите релиза. Сайт v-dem.net отдаёт архив только через веб-форму —
+    её не трогаем. Если GitHub недоступен, файл можно положить руками; сумма проверяется."""
+    folder = DATA_RAW / "vdem"
+    dest = folder / "vdem.RData"
+    print(f"[vdem] → {folder}")
+    if not dest.exists():
+        try:
+            write_manifest(folder, [download_file(VDEM_URL, dest)])
+        except requests.RequestException as e:
+            folder.mkdir(parents=True, exist_ok=True)
+            raise RuntimeError(
+                f"GitHub не отдал файл ({type(e).__name__}). Скачай вручную в браузере:\n    {VDEM_URL}\n"
+                f"  (репозиторий: https://github.com/vdeminstitute/vdemdata, релиз V16, файл data/vdem.RData)\n"
+                f"  и положи сюда:\n    {dest}\n  затем запусти `uv run python -m seldon download vdem` ещё раз."
+            ) from e
+    got = sha256_of(dest)
+    if got != VDEM_SHA256:
+        raise RuntimeError(f"контрольная сумма {dest} не совпала:\n    ожидалось {VDEM_SHA256}\n    получено  {got}\n"
+                           "  Это другой релиз V-Dem: проверь версию (нужен v16) или обнови VDEM_COMMIT и VDEM_SHA256.")
+    print(f"  vdem.RData: sha256 совпадает ({got[:12]}…)")
+    write_manifest(folder, [{"url": VDEM_URL, "file": dest.name, "bytes": dest.stat().st_size, "sha256": got, "skipped": False}])
+
+
 FETCHERS = {
     "lv": fetch_lv,
+    "vdem": fetch_vdem,
+    "epr": lambda: fetch_static("epr"),
     "ucdp": lambda: fetch_static("ucdp"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
@@ -495,7 +549,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr"]
 
 
 def main(argv: list[str]) -> int:

@@ -101,10 +101,16 @@ def build_panel(gmd: pd.DataFrame, dec_fx: pd.DataFrame, lv: pd.DataFrame, targe
     p = pd.DataFrame(index=idx).reset_index().merge(d, on=["iso3", "year"], how="left").merge(g, on=["iso3", "year"], how="left")
     p["country"] = p.groupby("iso3").country.transform(lambda s: s.ffill().bfill()).fillna(p.iso3)
     p["post_soviet"] = p.iso3.isin(POST_SOVIET_ISO3)
-    p["own_currency"] = True
+    p["own_currency"] = p["own_currency_next"] = True
     if drop_shared:
-        p = p.merge(shared_currency_table(int(p.year.min()), int(p.year.max())), on=["iso3", "year"], how="left")
+        reg = shared_currency_table(int(p.year.min()), int(p.year.max()) + 1)
+        p = p.merge(reg, on=["iso3", "year"], how="left")
         p["own_currency"] = p.fx_regime.isna()
+        # стык года вступления (чекпоинт 3.1): своя ли валюта в t+1 — в начале окна прогноза.
+        # Дата перехода объявляется заранее, это не знание из будущего.
+        nxt = reg.assign(year=reg.year - 1).rename(columns={"fx_regime": "fx_regime_next"})
+        p = p.merge(nxt, on=["iso3", "year"], how="left")
+        p["own_currency_next"] = p.pop("fx_regime_next").isna()
     p = p.merge(lv, on=["iso3", "year"], how="left").rename(columns={"lv_currency": "lv_cc"})
     p = add_events(p.sort_values(["iso3", "year"]).reset_index(drop=True))  # события и `hyper_prev` — по фактическим годам
     p = lag_columns(p, "iso3", "year", [c for c in MACRO_COLS if c in p], macro_lag)

@@ -30,7 +30,9 @@ import pytest
 
 from seldon.core import entities, temporal
 from seldon.domains.banking import econ_boe, econ_boe_em
-from seldon.domains.conflict import features, features_pitf, model_hist, panel
+from seldon.domains.conflict import features, features_epr, features_pitf, features_vdem, model_hist, panel
+from seldon.sources import epr as epr_source
+from seldon.sources import vdem as vdem_source
 from seldon.domains.currency import econ_kr, econ_long, kr_features, kr_targets, long_features
 
 ATOL = 1e-12
@@ -374,6 +376,10 @@ def test_publication_lags():
     assert t.publication_lag("gmd_annual", "apr1") == 0
     # внутри года Y известен список сторон войны только за Y−1
     assert t.last_available_year("ucdp_acd", pd.Timestamp("2020-09-30")) == 2019 and panel.ACD_LAG == 1
+    # политологические базы (чекпоинт 3.1): к 1 января T+1 год T не опубликован ни в V-Dem, ни в EPR
+    assert t.available_from("vdem_annual", 2024) == pd.Timestamp("2025-04-01")
+    assert t.publication_lag("vdem_annual", "jan1") == 1 == features_vdem.VDEM_LAG and t.publication_lag("vdem_annual", "apr1") == 0
+    assert t.publication_lag("epr_annual", "jan1") == 1 == features_epr.EPR_LAG and t.publication_lag("epr_annual", "apr1") == 1
     months = pd.Series(pd.period_range("2010-01", "2010-06", freq="M"))
     assert t.last_available_year_in_month("wdi_annual", months).tolist() == [2008, 2008, 2008, 2009, 2009, 2009]
 
@@ -482,6 +488,82 @@ def test_available_from_war_annual():
     assert _differs(run(imr, pop, 0), run(bad_imr, bad_pop, 0), cols), "контроль: без лага порча года T обязана быть видна"
 
 
+def synth_struct(grid: pd.DataFrame, seed: int = 7):
+    """Синтетические V-Dem (страна × год) и EPR (группа × год, родня — у соседа по номеру)."""
+    rng = np.random.default_rng(seed)
+    v = grid[["gw", "year"]].copy()
+    for c in ("v2x_polyarchy", "v2x_libdem", "v2x_clphy"):
+        v[c] = rng.uniform(0.05, 0.95, len(v))
+    v["v2cacamps"] = rng.normal(0, 1.5, len(v))
+    statuses = list(epr_source.POWER_RANK)
+    rows = []
+    for gw in sorted(grid.gw.unique()):
+        for k in range(3):
+            status = statuses[int(rng.integers(len(statuses)))]
+            for year in sorted(grid.year.unique()):
+                if rng.random() < 0.12:
+                    status = statuses[int(rng.integers(len(statuses)))]
+                rows.append({"gw": gw, "year": year, "gwgroupid": gw * 100 + k, "size": [0.6, 0.25, 0.1][k], "status": status})
+    g = pd.DataFrame(rows)
+    g["rank"] = g.status.map(epr_source.POWER_RANK)
+    tek = pd.DataFrame([{"tekid": gw * 10 + k, "gw": c, "gwgroupid": c * 100 + k}
+                        for gw in sorted(grid.gw.unique())[:-1] for k in (1, 2) for c in (gw, gw + 1) if (gw + k) % 2])
+    return v, g, tek
+
+
+def test_available_from_war_struct():
+    """V-Dem и EPR за год T к 1 января T+1 не опубликованы: ни признаки, ни прогноз набора
+    `vdem_epr` в точке T не зависят от их значений за T и позже."""
+    ged, states, parties, neighbors, span = synth_war()
+    year, _ = _war_panels(ged, states, parties, neighbors, span)
+    f = features.build_features(year, neighbors, target="state_war25")
+    for c in model_hist.PITF_MACRO:
+        f[c] = 0.0
+    v, g, tek = synth_struct(f)
+    war_terr = year[["gw", "year", "deaths_state"]]
+    T = 2008
+    feats = model_hist.FEATURE_SETS["vdem_epr"][0]
+    cols = [*features_vdem.VDEM_FEATURES, *features_epr.EPR_FEATURES]
+
+    def run(v, g, lag):
+        out = features_vdem.add_vdem_features(f, v, lag=lag)
+        out = features_epr.add_epr_features(out, g, tek, neighbors, war_terr, lag=lag, last_year=span[1])
+        return model_hist.forecast_asof(out, T, feats, target="state_war25").sort_values("gw")
+
+    bad_v = _corrupt(v, v.year >= T, vdem_source.VDEM_COLS)
+    bad_v = bad_v.fillna(0.5)
+    bad_g = g.copy()
+    late = bad_g.year >= T
+    rng = np.random.default_rng(8)
+    bad_g.loc[late, "status"] = rng.choice(list(epr_source.POWER_RANK), int(late.sum()))
+    bad_g.loc[late, "size"] = rng.uniform(0, 1, int(late.sum()))
+    bad_g["rank"] = bad_g.status.map(epr_source.POWER_RANK)
+    clean = run(v, g, 1)
+    assert clean.p.nunique() > 1 and clean.epr_downgraded_2y.sum() > 0 and clean.epr_tek_kin_war_nb.sum() > 0
+    _same(clean, run(bad_v, bad_g, 1), ["p", "p_onset", *cols])
+    assert _differs(run(v, g, 0), run(bad_v, g, 0), features_vdem.VDEM_FEATURES), "контроль: без лага порча V-Dem года T видна"
+    assert _differs(run(v, g, 0), run(v, bad_g, 0), features_epr.EPR_FEATURES), "контроль: без лага порча EPR года T видна"
+
+
+def test_epr_chronicle_end_is_flagged():
+    """Хроника EPR кончается в своём последнем году: дальше статусы продлены с флагом
+    `epr_extended`, а не выдаются за свежие данные (инвариант 6)."""
+    ged, states, parties, neighbors, span = synth_war()
+    year, _ = _war_panels(ged, states, parties, neighbors, span)
+    f = features.build_features(year, neighbors, target="state_war25")
+    _, g, tek = synth_struct(f)
+    last = span[1] - 4
+    out = features_epr.add_epr_features(f, g, tek, neighbors, year[["gw", "year", "deaths_state"]], lag=1, last_year=last)
+    assert (out[out.year <= last + 1].epr_extended == 0).all() and (out[out.year > last + 1].epr_extended == 1).all()
+    assert (out[out.year > last + 1].epr_missing == 0).all()
+    # всё, что в хронике записано после её последнего года, игнорируется
+    g2 = g.copy()
+    g2.loc[g2.year > last, "status"] = "DISCRIMINATED"
+    g2["rank"] = g2.status.map(epr_source.POWER_RANK)
+    out2 = features_epr.add_epr_features(f, g2, tek, neighbors, year[["gw", "year", "deaths_state"]], lag=1, last_year=last)
+    _same(out, out2, features_epr.EPR_FEATURES)
+
+
 # ---------------------------------------------------------------------------
 # 2. Целевая и evaluable согласованы
 # ---------------------------------------------------------------------------
@@ -511,6 +593,26 @@ def test_target_evaluable_sync_annual():
     prev_big = p.groupby("iso3").big.shift(1)
     assert (ev.big == 0).all() and (prev_big[ev.index].fillna(0) == 0).all(), \
         "строка evaluable, но девальвация в t+1 не может стать «началом» (уже идёт)"
+
+
+def test_shared_currency_entry_year_boundary():
+    """Стык года вступления в валютный союз (чекпоинт 3.1): Эстония переходит на евро в 2011.
+    Строка 2010 года смотрит в окно 2011…2012, где своей валюты уже нет: она не может быть
+    ни оцениваемой, ни получить индивидуальный прогноз. Строка 2009 (окно начинается в 2010,
+    ещё крона) прогноз получает."""
+    gmd, dec, lv = synth_annual_fx(seed=13)
+    gmd, dec = gmd.replace({"ISO3": {"C05": "EST"}}), dec.replace({"iso3": {"C05": "EST"}})
+    p = econ_long.build_panel(gmd, dec, lv, target="deval25", last_year=2015)
+    est = p[p.iso3 == "EST"].set_index("year")
+    assert est.own_currency[2010] and not est.own_currency[2011]
+    assert est.usable[2009], "за два года до перехода валюта своя и окно начинается со своей валюты"
+    assert not est.usable[2010] and not est.evaluable[2010], \
+        "строка года t получила валютный прогноз, хотя с t+1 у страны общая валюта"
+    assert "EST" in set(econ_long.forecast_asof(p, 2009, n_estimators=40).iso3)
+    assert "EST" not in set(econ_long.forecast_asof(p, 2010, n_estimators=40).iso3)
+    # вариант «все валюты» (без исключения союзов) правило не трогает
+    p_all = econ_long.build_panel(gmd, dec, lv, target="deval25", last_year=2015, drop_shared=False)
+    assert p_all[(p_all.iso3 == "EST") & (p_all.year == 2010)].usable.all()
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,8 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "panel": ("seldon.domains.conflict.panel", "панель страна×год/месяц по UCDP, целевые войны"),
     "features": ("seldon.domains.conflict.features", "признаки истории конфликтов: features [целевая]"),
     "features_pitf": ("seldon.domains.conflict.features_pitf", "+ режим, детская смертность, население"),
+    "features_vdem": ("seldon.domains.conflict.features_vdem", "+ институты V-Dem (нужен features_pitf)"),
+    "features_epr": ("seldon.domains.conflict.features_epr", "+ этническое исключение EPR (нужен features_vdem)"),
     "features_econ": ("seldon.domains.conflict.features_econ", "+ экономика (нужен econ_kr)"),
     "features_polit": ("seldon.domains.conflict.features_polit", "+ лидеры, перевороты, протесты"),
     "baseline": ("seldon.domains.conflict.baseline", "базовые модели войн: baseline [целевая]"),
@@ -29,8 +31,9 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "econ_boe": ("seldon.domains.banking.econ_boe", "повторение модели Банка Англии на JST (≈ 10 минут)"),
     "econ_boe_em": ("seldon.domains.banking.econ_boe_em", "модель BoE на странах BIS: econ_boe_em [lv]"),
     # evaluation, publish
+    "compare_war": ("seldon.evaluation.compare_war", "парное сравнение наборов модели войн с эталоном: compare_war [эталон] [набор ...]"),
     "scorecard": ("seldon.evaluation.scorecard", "сводная таблица качества основных моделей с интервалами"),
-    "risk_table": ("seldon.publish.risk_table", "таблица риска 2025–27 → reports/risk_2025_26.csv"),
+    "risk_table": ("seldon.publish.risk_table", "таблица риска 2026–27 → reports/risk_2025_26.csv"),
     "vintage": ("seldon.publish.vintage", "заморозить прогнозы: vintage [ГГГГ-ММ] → forecasts/ГГГГ-ММ/"),
     # research — вне боевого конвейера
     "pitf": ("seldon.research.pitf", "[research] повторение модели PITF на их данных"),

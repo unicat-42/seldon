@@ -2,6 +2,7 @@
 #
 #   make all        боевой конвейер в правильном порядке (≈ 8 минут)
 #   make variants   срезы для сравнения: старые целевые, бустинг, all_currencies, другие хроники,
+#                   структурные наборы войн (V-Dem, EPR) против эталона `pitf` (`compare_war`),
 #                   прогноз «на 1 апреля» (`apr1` — макроданные без лага публикации)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make test       автотесты на утечки будущего (секунды)
@@ -49,6 +50,12 @@ variants:
 	$(RUN) features_polit
 	$(RUN) model_hist econ logit state_war25
 	$(RUN) model_hist polit logit state_war25
+	$(RUN) features_vdem
+	$(RUN) features_epr
+	$(RUN) model_hist vdem logit state_war25
+	$(RUN) model_hist epr logit state_war25
+	$(RUN) model_hist vdem_epr logit state_war25
+	$(RUN) compare_war
 	$(RUN) econ_kr crisis all_currencies
 	$(RUN) econ_long deval25 all_currencies
 	$(RUN) econ_long gmd_cc

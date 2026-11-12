@@ -54,6 +54,9 @@ def add_target(p: pd.DataFrame, target: str) -> pd.DataFrame:
     if target == "deval25":
         # большая девальвация идёт в t или t−1 → в t+1 «начаться» она не может: y был бы занулён правилом
         drop |= (p.big == 1) | (p.groupby("iso3").big.shift(1).fillna(0) == 1)
-    p["usable"] = p.deval.notna() & p.own_currency & ~p.hyper_prev.fillna(False) & (p.year >= FIRST_YEAR)
+    # своя валюта нужна и в t, и в t+1: если с t+1 страна в валютном союзе (Эстония-2011,
+    # Болгария-2026), своего риска девальвации в окне прогноза уже нет
+    p["usable"] = (p.deval.notna() & p.own_currency & p.own_currency_next
+                   & ~p.hyper_prev.fillna(False) & (p.year >= FIRST_YEAR))
     p["evaluable"] = ~drop & p.y.notna() & p.usable
     return p

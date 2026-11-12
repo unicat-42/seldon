@@ -3,7 +3,8 @@
 Запуск:
     uv run python -m seldon model_hist [набор] [logit|gbm] [целевая]
         набор:    hist (история, features.py) | pitf (+ режим, смертность, население) |
-                  econ (+ экономика) | histecon | polit (+ лидеры, перевороты, протесты)
+                  econ (+ экономика) | histecon | polit (+ лидеры, перевороты, протесты) |
+                  vdem (V-Dem вместо Polity5) | epr (pitf + этническое исключение) | vdem_epr
         целевая:  state_war25 (по умолчанию) | state_war1000 | war25 | war1000 (старые)
 
 История (признаки `features.py`) считается по state_war25; для старой целевой war25 —
@@ -18,7 +19,7 @@
   главный сигнал «воюет сейчас → воюет завтра», а проверялась она на онсетах, где этого
   сигнала нет. Старая схема оставлена как `<имя>_single` для сравнения.
 
-Проверка вслепую: для каждого T = 1995…2023 учимся на парах (признаки года t, целевая
+Проверка вслепую: для каждого T = 1995…2024 учимся на парах (признаки года t, целевая
 года t+1) с t+1 ≤ T, предсказываем год T+1.
 
 Что считаем (главное — онсеты: страны, не воевавшие в году T):
@@ -59,21 +60,30 @@ from seldon.core.temporal import label_known
 from seldon.domains.conflict.features import DEFAULT_TARGET, features_file
 from seldon.domains.conflict.features import FEATURES as HIST_FEATURES
 from seldon.domains.conflict.features_econ import ECON_FEATURES
+from seldon.domains.conflict.features_epr import EPR_FEATURES
 from seldon.domains.conflict.features_pitf import PITF_FEATURES
 from seldon.domains.conflict.features_polit import POLIT_FEATURES
+from seldon.domains.conflict.features_vdem import VDEM_FEATURES
 from seldon.domains.conflict.panel import ONSET_OF
 from seldon.evaluation.backtest import backtest
+from seldon.sources.ucdp import YEAR_TO
 
 HORIZON = 1  # метка строки t — целевая года t+1
-TRAIN_YEARS = range(1995, 2024)
+TRAIN_YEARS = range(1995, YEAR_TO)  # T = 1995…2024 → прогноз на 1996…2025
 N_BOOT = 500
 QUIET_YEARS = 10
+PITF_MACRO = ["log_imr_rel", "imr_missing", "log_pop", "pop_missing"]  # PITF без режима Polity5
 FEATURE_SETS = {
     "hist": (HIST_FEATURES, "features_country_year.parquet"),
     "pitf": ([*HIST_FEATURES, *PITF_FEATURES], "features_pitf_country_year.parquet"),
     "econ": ([*HIST_FEATURES, *PITF_FEATURES, *ECON_FEATURES], "features_econ_country_year.parquet"),
     "histecon": ([*HIST_FEATURES, *ECON_FEATURES], "features_econ_country_year.parquet"),
     "polit": ([*HIST_FEATURES, *PITF_FEATURES, *POLIT_FEATURES], "features_polit_country_year.parquet"),
+    # чекпоинт 3.1. `vdem`: V-Dem ВМЕСТО режима Polity5 (смертность и население остаются);
+    # `epr`: EPR ПОВЕРХ эталона `pitf`; `vdem_epr`: V-Dem вместо Polity5 плюс EPR
+    "vdem": ([*HIST_FEATURES, *PITF_MACRO, *VDEM_FEATURES], "features_vdem_country_year.parquet"),
+    "epr": ([*HIST_FEATURES, *PITF_FEATURES, *EPR_FEATURES], "features_struct_country_year.parquet"),
+    "vdem_epr": ([*HIST_FEATURES, *PITF_MACRO, *VDEM_FEATURES, *EPR_FEATURES], "features_struct_country_year.parquet"),
 }
 # история считается по этой целевой (state_war1000 — редкая, её историю ведём по state_war25)
 HISTORY_OF = {"state_war25": "state_war25", "state_war1000": "state_war25", "war25": "war25", "war1000": "war25"}
@@ -262,7 +272,7 @@ def main(argv: list[str]) -> int:
           f"под риском {int(s0.n_at_risk)} страна-лет, онсетов {int(s0.n_onset)} (из них после тишины ≥ {QUIET_YEARS} лет: {int(s0.n_onset_quiet10)})")
     print(show(summary))
     if not coefs.empty:
-        print("\nКоэффициенты модели начала (стандартизованные; последняя, обучена по 2023):")
+        print("\nКоэффициенты модели начала (стандартизованные; последняя, обучена по 2024):")
         print(coefs.iloc[:, -1].sort_values(key=abs, ascending=False).round(3).head(12).to_string())
     return 0
 
