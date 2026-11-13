@@ -25,9 +25,11 @@
        («сжатая пружина», чекпоинт 3.3; в модели витрины не входят): `peg_share12` — доля
        спокойных месяцев из последних 12 (1 — жёсткая привязка к доллару или евро),
        `reer_peg` — реальное укрепление сверх собственного среднего за 5 лет, умноженное на
-       `peg_share12` (0 — пружина не натянута). Оба считаются по живым рядам (курс МВФ, REER
-       Bruegel), без замороженной классификации IRR. REER выходит реже курса: `reer_peg` —
-       на последний месяц с REER, не старше `REER_MAX_STALE` месяцев от `as_of`.
+       `peg_share12` (0 — пружина не натянута); `peg_resfall` — привязка × падение резервов
+       за 12 месяцев (0 — резервы не уходят; пусто — резервов нет в данных). Все три считаются
+       по живым рядам (курс МВФ, резервы МВФ, REER Bruegel), без замороженной классификации IRR.
+       REER выходит реже курса: `reer_peg` — на последний месяц с REER, не старше
+       `REER_MAX_STALE` месяцев от `as_of`.
      Колонка `fx_regime`: `own` — своя валюта; код валюты (EUR, XOF, USD…) — общая или чужая,
      своего валютного риска нет, вероятность пустая; `no_imf_fx` — валюта своя, но курса
      в данных МВФ нет (Туркменистан), прогноз посчитать не на чем.
@@ -65,6 +67,7 @@ FX_LAST_MONTH = "2026-10"
 FX_MIN_AS_OF = "2026-04"  # страны, у которых курс кончается раньше, в таблицу не берём
 FX_REGIME_YEAR = 2026
 REER_MAX_STALE = 3  # `reer_peg` берётся на последний месяц с REER, если он не старше стольких месяцев от `as_of`
+RES_MAX_STALE = 3   # то же для `peg_resfall`: месячные резервы МВФ выходят на 1–2 месяца позже курса
 FX_ANNUAL_YEARS = (2024, 2025)
 FX_ANNUAL_TRAIN_THROUGH = 2023  # метка строки t смотрит в t+2; декабрь 2025 известен
 BANK_YEARS = (2024, 2025)
@@ -106,8 +109,8 @@ def fx_risk() -> pd.DataFrame:
     `deval15` (курс за месяц вырос ≥ 15 % в ближайшие 12 мес; вслепую AUC 0,65 сквозной,
     0,70 внутри года). Остальное — описательные индикаторы текущего стресса, НЕ вероятности:
     `emp_z_max3` (давление за 3 мес, в σ), `reserves_g12`, `deval12`, `infl12`,
-    `signals_fired` (какие индикаторы KLR сейчас за порогом), `peg_share12` и `reer_peg`
-    (уязвимость режима курса, см. `regime_stress`). Модели `pressure` и `signals`
+    `signals_fired` (какие индикаторы KLR сейчас за порогом), `peg_share12`, `reer_peg` и
+    `peg_resfall` (уязвимость режима курса, см. `regime_stress`). Модели `pressure` и `signals`
     по EMP-кризису в витрину не идут: сквозной AUC 0,51 — монетка (исследовательский режим
     остался в `econ_kr`)."""
     as_of = pd.Period(FX_LAST_MONTH, freq="M")
@@ -128,8 +131,25 @@ def fx_risk() -> pd.DataFrame:
     cols = ["iso3", "as_of", "fx_deval15_12m", "rank_fx_deval15_12m", "fx_deval15_base_rate", "deval15_last_12m",
             "emp_z_max3", "reserves_g12", "deval12", "infl12", "signals_fired"]
     out = test[cols].merge(regime_stress(test[["iso3", "as_of"]]), on="iso3", how="left")
+    out["peg_resfall"] = peg_resfall(p, test[["iso3", "as_of"]], out.peg_share12)
     out["as_of"] = out.as_of.astype(str)
     return out
+
+
+def peg_resfall(panel: pd.DataFrame, as_of: pd.DataFrame, peg: pd.Series) -> pd.Series:
+    """`peg_resfall` — привязка × падение резервов за 12 месяцев (лучший признак чекпоинта 4.1,
+    решение Ангелины 13.11.2026): 0 — резервы не уходят, пусто — резервов нет в данных.
+    Описательный индикатор, НЕ вероятность и не признак боевой модели.
+
+    Месячные резервы МВФ выходят на 1–2 месяца позже курса, поэтому берётся последнее
+    значение не старше `RES_MAX_STALE` месяцев от `as_of` страны — как у `reer_peg`
+    (на самый свежий месяц резервы есть лишь у четверти стран витрины, с допуском — у трёх
+    четвертей). Поэтому индикатор может быть посчитан не на тот месяц, что колонка
+    `reserves_g12` рядом: та всегда на `as_of`."""
+    h = panel[panel.reserves_g12.notna()].merge(as_of, on="iso3")
+    h = h[(h.month <= h.as_of) & ((h.as_of - h.month).map(lambda d: d.n) <= RES_MAX_STALE)]
+    res = h.sort_values("month").groupby("iso3").reserves_g12.last()
+    return peg * (-as_of.iso3.map(res).to_numpy()).clip(min=0)
 
 
 def regime_stress(as_of: pd.DataFrame) -> pd.DataFrame:
@@ -264,7 +284,7 @@ def main(argv: list[str]) -> int:
     print(f"\nМесячная шкала на дату as_of. Вероятность скачка курса ≥ 15 % за месяц в ближайшие 12 мес (`deval15`, логрегрессия; "
           f"место среди {fx.iso3.nunique()} стран; база {fx.fx_deval15_base_rate.iloc[0]:.3f}) и индикаторы текущего стресса (не вероятности):")
     print(ps[["country", "fx_regime", "as_of", "fx_deval15_12m", "rank_fx_deval15_12m", "deval15_last_12m",
-              "emp_z_max3", "reserves_g12", "deval12", "infl12", "signals_fired", "peg_share12", "reer_peg"]].round(3).to_string(index=False))
+              "emp_z_max3", "reserves_g12", "deval12", "infl12", "signals_fired", "peg_share12", "reer_peg", "peg_resfall"]].round(3).to_string(index=False))
     print("\nБанковский кризис (деревья BoE, набор `full`; есть только у стран BIS с длинной ставкой и своей денежной массой):")
     print(ps[["country", "bank_status", "bank_jst_extree_full_2026_27", "rank_bank_jst_extree_full_2026_27"]].round(3).to_string(index=False))
     print("  покрытие по миру:", t.bank_status.value_counts().to_dict())
