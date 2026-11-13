@@ -6,7 +6,9 @@
 #                   диадная панель и два канала риска (`dyads`, `model_dyad`, `compare_war dyad`),
 #                   прогноз «на 1 апреля» (`apr1` — макроданные без лага публикации),
 #                   структурный валютный блок против боевых валютных моделей (`econ_struct`,
-#                   `compare_fx`; `ctot_rt` — условия торговли без задержки набора МВФ)
+#                   `compare_fx`; `ctot_rt` — условия торговли без задержки набора МВФ),
+#                   валютное заражение по торговым связям и параллельный курс на горизонтах
+#                   3 / 6 / 12 месяцев (`econ_contagion`, `compare_contagion`; ≈ 6 минут)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make risk       пересобрать только таблицу риска (нужны готовые таблицы `make all`)
 #   make test       автотесты на утечки будущего (секунды)
@@ -75,6 +77,8 @@ variants:
 	$(RUN) compare_fx
 	$(RUN) econ_struct ctot_rt
 	$(RUN) compare_fx ctot_rt
+	$(RUN) econ_contagion
+	$(RUN) compare_contagion
 
 replicate:
 	$(RUN) econ_boe

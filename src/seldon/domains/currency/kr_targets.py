@@ -109,10 +109,11 @@ def onsets(spike: pd.Series, iso3: pd.Series) -> tuple[pd.Series, pd.Series]:
     return pd.Series(out, index=spike.index), pd.Series(quiet, index=spike.index)
 
 
-def add_target(p: pd.DataFrame, target: str = "crisis") -> pd.DataFrame:
+def add_target(p: pd.DataFrame, target: str = "crisis", h: int = H) -> pd.DataFrame:
+    """Метка `y`: кризис в ближайшие `h` месяцев (по умолчанию 12; чекпоинт 4.1 — ещё 3 и 6)."""
     p = p.copy()
     gb = p.groupby("iso3")[target]
-    fwd = sum(gb.shift(-k) for k in range(1, H + 1))
+    fwd = sum(gb.shift(-k) for k in range(1, h + 1))
     p["y"] = (fwd > 0).astype(float)
     p.loc[fwd.isna(), "y"] = np.nan  # конец ряда: окно не полностью известно
     # Строку оцениваем, только если кризис в её окне МОЖЕТ быть засчитан: с последнего

@@ -128,11 +128,11 @@ def _kr_fit(train: pd.DataFrame, feats: list[str], C: float):
     return m, lo, hi, med
 
 
-def choose_C_kr(known: pd.DataFrame, feats: list[str], grid: tuple[float, ...] = KR_C_GRID) -> float:
+def choose_C_kr(known: pd.DataFrame, feats: list[str], grid: tuple[float, ...] = KR_C_GRID, h: int = econ_kr.H) -> float:
     """C по времени внутри обучения: последние `KR_VAL_MONTHS` месяцев обучения — проверка,
-    учимся на окнах, закрывшихся до её начала (месяц + H ≤ граница)."""
+    учимся на окнах, закрывшихся до её начала (месяц + h ≤ граница)."""
     cut = known.month.max() - KR_VAL_MONTHS
-    fit, val = known[label_known(known.month, cut, econ_kr.H)], known[known.month > cut]
+    fit, val = known[label_known(known.month, cut, h)], known[known.month > cut]
     if fit.y.sum() < KR_MIN_POS or val.y.nunique() < 2:
         return KR_C_REF
     loss = {}

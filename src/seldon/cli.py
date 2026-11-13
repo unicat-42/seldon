@@ -30,12 +30,14 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "econ_kr": ("seldon.domains.currency.econ_kr", "месячный валютный блок: econ_kr [crisis|deval15] [all_currencies]"),
     "econ_long": ("seldon.domains.currency.econ_long", "годовой валютный блок: econ_long [deval25|gmd_cc|lv_cc] [all_currencies]"),
     "econ_struct": ("seldon.domains.currency.econ_struct", "структурные признаки против боевых валютных моделей: econ_struct [long] [kr] [ctot_rt]"),
+    "econ_contagion": ("seldon.domains.currency.econ_contagion", "валютное заражение по торговым связям и параллельный курс, горизонты 3 / 6 / 12 мес: econ_contagion [3] [6] [12]"),
     # domains.banking
     "econ_boe": ("seldon.domains.banking.econ_boe", "повторение модели Банка Англии на JST (≈ 10 минут)"),
     "econ_boe_em": ("seldon.domains.banking.econ_boe_em", "модель BoE на странах BIS: econ_boe_em [lv]"),
     # evaluation, publish
     "compare_war": ("seldon.evaluation.compare_war", "парное сравнение наборов модели войн с эталоном: compare_war [эталон] [набор ...]"),
     "compare_fx": ("seldon.evaluation.compare_fx", "парное сравнение структурных наборов с валютными эталонами + кейсы (нужен econ_struct)"),
+    "compare_contagion": ("seldon.evaluation.compare_contagion", "парное сравнение наборов заражения с боевой моделью и struct + контрольные кейсы (нужен econ_contagion)"),
     "scorecard": ("seldon.evaluation.scorecard", "сводная таблица качества основных моделей с интервалами"),
     "risk_table": ("seldon.publish.risk_table", "таблица риска 2026–27 → reports/risk_2025_26.csv"),
     "vintage": ("seldon.publish.vintage", "заморозить прогнозы: vintage [ГГГГ-ММ] → forecasts/ГГГГ-ММ/"),

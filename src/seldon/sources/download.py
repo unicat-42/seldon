@@ -24,6 +24,7 @@
     uv run python -m seldon download mid
     uv run python -m seldon download irr
     uv run python -m seldon download bruegel
+    uv run python -m seldon download parallel
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -47,6 +48,7 @@ from seldon import DATA_RAW
 from seldon.sources.bruegel import BRUEGEL_URL, BRUEGEL_ZIP
 from seldon.sources.gmd import GMD_VERSION
 from seldon.sources.irr import IRR_FILE, IRR_URL
+from seldon.sources.parallel import REINHART_FILE, REINHART_SHA256, REINHART_URL
 from seldon.sources.epr import EPR_VERSION
 from seldon.sources.ucdp import UCDP_VERSION
 from seldon.sources.unga import UNGA_DATAVERSE_ID, UNGA_FILE
@@ -239,6 +241,13 @@ SOURCES: dict[str, dict] = {
         "unzip": False,
         "sha256": {IRR_FILE: "a566f77638721985de7c410b0ed9f92108b659ae7bffe62f437f269076715a04"},
     },
+    # Параллельный курс Рейнхарт–Рогофф, 1946–1998: на сайте автора файл недоступен, берём
+    # снимок Архива интернета; см. `sources/parallel.py`.
+    "parallel": {
+        "files": {REINHART_FILE: REINHART_URL},
+        "unzip": False,
+        "sha256": {REINHART_FILE: REINHART_SHA256},
+    },
     # REER Bruegel (Darvas), релиз 11.10.2026: месячный реальный эффективный курс, 178 стран.
     # Прямая ссылка на архив релиза; см. `sources/bruegel.py`.
     "bruegel": {
@@ -289,6 +298,13 @@ SOURCES: dict[str, dict] = {
             # департамента (IMF.RES). Только вариант со СКОЛЬЗЯЩИМИ весами прошлых лет (R_RW_IX):
             # у фиксированных весов структура экспорта будущих лет попадает в прошлое
             "ctot": ("CTOT", {"INDICATOR": "CEMPI_CTOTXM_GDP", "WGT_TYPE": "R_RW_IX", "FREQUENCY": "M"}),
+            # чекпоинт 4.1: двусторонняя торговля товарами по странам-партнёрам (IMTS — бывшая
+            # Direction of Trade Statistics), годовая: экспорт FOB и импорт CIF в долларах.
+            # Веса торговых партнёров для валютного заражения; см. `sources/imf.py: load_trade`
+            "trade_partners": ("IMTS", {"INDICATOR": "XG_FOB_USD,MG_CIF_USD", "FREQUENCY": "A"}),
+            # чекпоинт 4.1: премия параллельного курса, вычисленного из цен биткойна (2019+);
+            # см. `sources/parallel.py`
+            "crypto_parallel": ("WPCPER", {"INDICATOR": "BIT_SHD_PT", "FREQUENCY": "M"}),
         },
         # поток → агентство, если не IMF.STA
         "agency": {"CTOT": "IMF.RES"},
@@ -605,6 +621,7 @@ FETCHERS = {
     "mid": lambda: fetch_static("mid"),
     "irr": lambda: fetch_static("irr"),
     "bruegel": lambda: fetch_static("bruegel"),
+    "parallel": lambda: fetch_static("parallel"),
     "ucdp": lambda: fetch_static("ucdp"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
@@ -623,7 +640,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel"]
+DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel"]
 
 
 def main(argv: list[str]) -> int:

@@ -23,6 +23,10 @@
    публикации) для таблицы признаков `struct_features` и обоих контуров `econ_struct`;
    конец хроники IRR; привязка к евро; вариант весов условий торговли.
 
+6. Валютное заражение (чекпоинт 4.1): торговые веса не смотрят в текущий и будущие годы,
+   курсы партнёров — за месяц m, премия параллельного курса соблюдает лаг публикации;
+   прогноз `econ_contagion` на горизонтах 3, 6 и 12 месяцев слеп к будущему.
+
 Глобальные константы модулей тесты не трогают: всё передаётся аргументами.
 """
 
@@ -37,7 +41,9 @@ from seldon.domains.banking import econ_boe, econ_boe_em
 from seldon.domains.conflict import dyads, features, features_epr, features_pitf, features_vdem, model_dyad, model_hist, panel
 from seldon.sources import epr as epr_source
 from seldon.sources import vdem as vdem_source
-from seldon.domains.currency import econ_kr, econ_long, econ_struct, kr_features, kr_targets, long_features, struct_features
+from seldon.domains.currency import (contagion_features, econ_contagion, econ_kr, econ_long, econ_struct, kr_features, kr_targets,
+                                     long_features, struct_features)
+from seldon.domains.currency.contagion_features import ContagionLags
 from seldon.domains.currency.struct_features import StructLags
 from seldon.sources import imf as imf_source
 from seldon.sources import irr as irr_source
@@ -993,3 +999,130 @@ def test_entity_mapping():
     assert set(t[t.year == 2025].fx_regime) >= {"EUR", "USD", "XOF", "XAF"}
     # FIPS для GDELT: без повторов
     assert len(set(c.ISO3_TO_FIPS.values())) == len(c.ISO3_TO_FIPS)
+
+
+# ---------------------------------------------------------------------------
+# Чекпоинт 4.1: валютное заражение по торговым связям и параллельный курс
+# ---------------------------------------------------------------------------
+
+
+def synth_contagion(countries: list[str], months: pd.PeriodIndex, seed: int = 31) -> dict:
+    """Торговля пар по годам, премия параллельного курса и ВВП на душу — случайные."""
+    rng = np.random.default_rng(seed)
+    years = range(int(months.year.min()) - 4, int(months.year.max()) + 1)
+    # лог-нормальные объёмы: у стран появляются «ключевые» партнёры с долей ≥ 15 %
+    trade = pd.DataFrame([(a, b, y, float(rng.lognormal(0, 2)), float(rng.lognormal(0, 2)))
+                          for a in countries for b in countries if a != b for y in years],
+                         columns=["iso3", "partner", "year", "exports", "imports"])
+    parallel = pd.DataFrame([(c, m, float(rng.uniform(0, 1))) for c in countries[1:7] for m in months], columns=["iso3", "month", "premium"])
+    gdp = pd.DataFrame([(c, y, float(rng.uniform(500, 50000))) for c in countries for y in years], columns=["iso3", "year", "gdp_pc"])
+    return {"trade": trade, "parallel": parallel, "gdp": gdp}
+
+
+def _contagion(s: dict, c: dict, lags: ContagionLags = ContagionLags()) -> pd.DataFrame:
+    return contagion_features.build_contagion(s["fx"], s["eur"], c["trade"], _struct(s), c["parallel"], lags)
+
+
+def _corrupt_contagion(c: dict, trade_from=None, parallel_after=None, gdp_from=None) -> dict:
+    out = dict(c)
+    if trade_from is not None:
+        out["trade"] = _corrupt(c["trade"], c["trade"].year >= trade_from, ["exports", "imports"], seed=41).fillna({"exports": 1e9, "imports": 1e9})
+    if parallel_after is not None:
+        out["parallel"] = _corrupt(c["parallel"], c["parallel"].month > parallel_after, ["premium"], seed=42)
+    if gdp_from is not None:
+        out["gdp"] = _corrupt(c["gdp"], c["gdp"].year >= gdp_from, ["gdp_pc"], seed=43)
+    return out
+
+
+def test_future_blindness_fx_contagion_features():
+    """Строки ≤ as_of не меняются, если испортить курсы (свои и партнёров) после as_of,
+    торговлю текущего и будущих лет и параллельный курс после as_of."""
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s, c = synth_fx_struct(KR_COUNTRIES, months), synth_contagion(KR_COUNTRIES, months)
+    as_of = pd.Period("2010-09", freq="M")
+    clean = _contagion(s, c)
+    bad = _contagion(_future_struct(s, as_of), _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of))
+    past = lambda d: d[d.month <= as_of].sort_values(["iso3", "month"])  # noqa: E731
+    now = clean[clean.month == as_of]
+    assert all(now[f].nunique() > 1 for f in ("pshock3", "pshock12", "pmax6", "pshock_peg6", "par_prem"))
+    _same(past(clean), past(bad), contagion_features.COLUMNS)
+    assert _differs(clean[clean.month > as_of], bad[bad.month > as_of], contagion_features.COLUMNS), "контроль: порча будущего обязана быть видна"
+
+
+@pytest.mark.parametrize("as_of", ["2010-03", "2010-09"])
+def test_available_from_fx_contagion_features(as_of):
+    """Торговые веса на строке месяца m — по годам, вышедшим к m (`imts_annual`: в марте 2010 —
+    по 2008-й, в сентябре — по 2009-й); премия параллельного курса — не позже m − 1."""
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s, c = synth_fx_struct(KR_COUNTRIES, months), synth_contagion(KR_COUNTRIES, months)
+    as_of = pd.Period(as_of, freq="M")
+    last_year = int(temporal.last_available_year_in_month("imts_annual", pd.Series([as_of])).iloc[0])
+    assert last_year == (2008 if as_of.month < 7 else 2009)
+    bad_c = _corrupt_contagion(c, trade_from=last_year + 1, parallel_after=as_of - temporal.monthly_lag("parallel_premium"))
+    row = lambda d: d[d.month == as_of].sort_values("iso3")  # noqa: E731
+    _same(row(_contagion(s, c)), row(_contagion(s, bad_c)), contagion_features.COLUMNS)
+    # контроль: без лагов та же порча признаки меняет
+    no_lag = ContagionLags(trade_source=None, parallel_months=0)
+    assert _differs(row(_contagion(s, c, no_lag)), row(_contagion(s, bad_c, no_lag)), ["pshock3", "pmax6"])
+    assert _differs(row(_contagion(s, c, no_lag)), row(_contagion(s, bad_c, no_lag)), ["par_prem"])
+
+
+def test_contagion_sees_partner_crash_same_month_not_earlier():
+    """Смысл признака: главный партнёр обесценился на 50 % в месяце m — у страны с неподвижным
+    курсом `pshock3` и `pmax3` положительны в m (и только с m), у самого партнёра — отрицательны."""
+    months = pd.period_range("2000-01", "2006-12", freq="M")
+    crash = pd.Period("2005-06", freq="M")
+    fx = pd.concat([pd.DataFrame({"iso3": "AAA", "month": months, "fx": 10.0}),
+                    pd.DataFrame({"iso3": "BBB", "month": months, "fx": np.where(months >= crash, 15.0, 10.0)}),
+                    pd.DataFrame({"iso3": "CCC", "month": months, "fx": 5.0})], ignore_index=True)
+    eur = pd.DataFrame({"month": months, "eur_usd": 1.0})
+    trade = pd.DataFrame([("AAA", "BBB", y, 80.0, 0.0) for y in range(1996, 2007)] + [("AAA", "CCC", y, 20.0, 0.0) for y in range(1996, 2007)]
+                         + [("BBB", "AAA", y, 80.0, 0.0) for y in range(1996, 2007)], columns=["iso3", "partner", "year", "exports", "imports"])
+    struct = pd.DataFrame({"iso3": "AAA", "month": months, "peg_share12": 1.0, "ctot_d12": 0.0, "ctot_missing": 0})
+    t = contagion_features.build_contagion(fx, eur, trade, struct).set_index(["iso3", "month"])
+    assert t.loc[("AAA", crash - 1), "pshock3"] == 0 and t.loc[("AAA", crash - 1), "pmax3"] == 0
+    assert np.isclose(t.loc[("AAA", crash), "pshock3"], 0.8 * np.log(1.5))
+    assert np.isclose(t.loc[("AAA", crash), "pmax3"], np.log(1.5)) and np.isclose(t.loc[("AAA", crash), "pshock_peg3"], 0.8 * np.log(1.5))
+    assert np.isclose(t.loc[("AAA", crash + 3), "pshock3"], 0) and np.isclose(t.loc[("AAA", crash + 3), "pshock6"], 0.8 * np.log(1.5))
+    assert t.loc[("BBB", crash), "pshock3"] < 0 and t.loc[("BBB", crash), "pmax3"] == 0
+
+
+@pytest.mark.parametrize("h", [3, 12])
+def test_future_blindness_fx_contagion_monthly(h):
+    """Прогноз `econ_contagion.forecast_asof` на горизонте h не меняется от порчи будущего
+    (курсы, макро, война, торговля, параллельный курс, ВВП на душу)."""
+    raw, annual, war = synth_monthly()
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s, c = synth_fx_struct(KR_COUNTRIES, months, fx=raw), synth_contagion(KR_COUNTRIES, months)
+    as_of = pd.Period("2010-06", freq="M")
+
+    def run(raw, annual, war, s, c, name):
+        p = econ_contagion.build_panel(_struct(s), _contagion(s, c), c["gdp"], raw, annual, war)
+        return econ_contagion.forecast_asof(econ_contagion.with_horizon(p, h), as_of, name, h).sort_values("iso3")
+
+    bad_raw = _corrupt(raw, raw.month > as_of, KR_COLS)
+    bad = (bad_raw, _corrupt(annual, annual.year >= as_of.year, ["value"]),
+           _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]),
+           _future_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of),
+           _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of, gdp_from=as_of.year - 1))
+    for name in ("full", "par"):
+        clean = run(raw, annual, war, s, c, name)
+        assert clean.logit.notna().all() and clean.logit.nunique() > 1
+        _same(clean, run(*bad, name), ["logit", "C", *contagion_features.COLUMNS, "gdp_pc_log"])
+    ref = run(raw, annual, war, s, c, "ref")
+    assert _differs(ref, run(raw, annual, war, s, c, "full"), ["logit"]), "контроль: набор обязан менять прогноз"
+    if h == 12:  # на горизонте 12 месяцев эталон — та же логрегрессия, что в боевом контуре
+        battle = econ_kr.forecast_asof(econ_kr.build_panel(raw, annual, war, target="deval15"), as_of).sort_values("iso3")
+        _same(ref, battle, ["logit"])
+
+
+def test_horizon_label_looks_h_months_ahead():
+    """Метка горизонта h смотрит ровно в m+1…m+h; по умолчанию — прежние 12 месяцев."""
+    raw, annual, war = synth_monthly()
+    p = econ_kr.build_panel(raw, annual, war, target="deval15")
+    assert kr_targets.add_target(p, "deval15").y.equals(p.y)
+    for h in (3, 6):
+        q = kr_targets.add_target(p, "deval15", h=h)
+        fwd = sum(q.groupby("iso3").deval15.shift(-k) for k in range(1, h + 1))
+        assert ((q.y == 1) == (fwd > 0))[fwd.notna()].all() and q.y[fwd.isna()].isna().all()
+        assert (q.y.fillna(0) <= p.y.fillna(1)).all(), "кризис за h месяцев — подмножество кризиса за 12"

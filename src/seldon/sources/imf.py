@@ -65,3 +65,23 @@ def load_eur_anchor(fx: pd.DataFrame | None = None) -> pd.DataFrame:
     dem = fx[(fx.iso3 == "DEU") & (fx.month < EURO_FROM)].assign(eur_usd=lambda d: d.fx / DEM_PER_EUR)
     eur = fx[(fx.iso3 == EURO_AREA) & (fx.month >= EURO_FROM)].assign(eur_usd=lambda d: d.fx)
     return pd.concat([dem, eur])[["month", "eur_usd"]].sort_values("month").reset_index(drop=True)
+
+
+# Двусторонняя торговля товарами (IMTS — бывшая Direction of Trade Statistics), годовая,
+# 1948–2025: экспорт FOB и импорт CIF страны-отчётчика по партнёрам, доллары. Постсоветские
+# страны — с 1992–1994 годов. Агрегаты (коды `G…`: мир, еврозона, регионы) выбрасываются.
+# Ревизии не покрыты: читается сегодняшняя редакция (у МВФ есть помесячные «винтажи» набора,
+# но только с декабря 2025).
+TRADE_EXPORTS, TRADE_IMPORTS = "XG_FOB_USD", "MG_CIF_USD"
+
+
+def load_trade() -> pd.DataFrame:
+    """Годовая торговля пар: iso3 (отчётчик), partner, year, exports, imports (доллары;
+    пропуск — отчётчик потока не сообщал)."""
+    d = pd.read_csv(IMF / "trade_partners.csv", usecols=["COUNTRY", "INDICATOR", "COUNTERPART_COUNTRY", "TIME_PERIOD", "OBS_VALUE"])
+    iso = r"[A-Z]{3}"
+    d = d[d.COUNTRY.str.fullmatch(iso, na=False) & d.COUNTERPART_COUNTRY.str.fullmatch(iso, na=False) & (d.OBS_VALUE > 0)]
+    t = d.pivot_table(index=["COUNTRY", "COUNTERPART_COUNTRY", "TIME_PERIOD"], columns="INDICATOR", values="OBS_VALUE", aggfunc="first")
+    t = t.reindex(columns=[TRADE_EXPORTS, TRADE_IMPORTS]).reset_index()
+    t.columns = ["iso3", "partner", "year", "exports", "imports"]
+    return t.astype({"year": int})
