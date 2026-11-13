@@ -312,7 +312,7 @@ export const stripLegend = (dom = "war") => `<div class="legend dom-${dom}">
 </div>`;
 
 /** Лента рангов: строка — исторический выпуск, отметка — страна, слева — более высокие оценки. */
-export function ribbon(rib, sel) {
+export function ribbon(rib, sel, { blind = false } = {}) {
   const W = 800, padL = 44, padR = 10, rowH = 15, top = 30;
   const years = rib.years;
   const H = top + years.length * rowH + 30;
@@ -325,9 +325,9 @@ export function ribbon(rib, sel) {
     y.rows.forEach((r, k) => {
       const x = padL + (k + 0.5) * step;
       ticks += `M${x.toFixed(1)} ${cy - 4.5}V${cy + 4.5}`;
-      if (r[5]) evs += `<circle class="rb-ev" cx="${x.toFixed(1)}" cy="${cy}" r="3"/>`;
+      if (r[5] && !blind) evs += `<circle class="rb-ev" cx="${x.toFixed(1)}" cy="${cy}" r="3"/>`;
       hits += `<rect class="rb-hit" data-y="${y.release}" data-id="${r[0]}" x="${(x - step / 2).toFixed(1)}" y="${cy - rowH / 2}" width="${step.toFixed(2)}" height="${rowH}"><title>${esc(nameOf(r[0]))} · выпуск ${y.as_of.slice(0, 4)}</title></rect>`;
-      if (sel && sel.y === y.release && sel.id === r[0]) evs += `<circle class="rb-sel" cx="${x.toFixed(1)}" cy="${cy}" r="6"/>`;
+      if (sel && String(sel.y) === String(y.release) && sel.id === r[0]) evs += `<circle class="rb-sel" cx="${x.toFixed(1)}" cy="${cy}" r="6"/>`;
     });
     out.push(`<path class="rb-tick" d="${ticks}"/>${evs}${hits}`);
   });

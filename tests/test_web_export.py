@@ -510,3 +510,76 @@ def test_site_reads_only_exported_files(bundle):
         assert f"oos/{rib}.json" in files
         for y in bundle["load"](f"oos/{rib}.json")["years"]:
             assert f"oos/{rib}/{y['release']}.json" in files
+
+
+# ---------------------------------------------------------------------------
+# 4. «Проверка», вид P4 и мобильная версия (чекпоинт 5.3)
+# ---------------------------------------------------------------------------
+
+
+def test_check_helpers_on_synthetic():
+    """Калибровка, разность Brier и верхние k — на синтетике с известным ответом."""
+    rng = np.random.default_rng(7)
+    n = 4000
+    p = rng.uniform(0.01, 0.6, n)
+    y = (rng.random(n) < p).astype(float)  # идеально откалиброванная модель
+    bins = web_export._reliability(p, y)
+    assert sum(b["n"] for b in bins) == n and sum(b["events"] for b in bins) == int(y.sum())
+    assert all(b["lo"] <= b["freq"] <= b["hi"] for b in bins)
+    assert sum(b["lo"] <= b["p"] <= b["hi"] for b in bins) >= len(bins) - 1  # частота накрывает оценку
+    assert [b["p"] for b in bins] == sorted(b["p"] for b in bins)
+    d = pd.DataFrame({"y": y, "model": p, "base": y.mean(), "year": rng.integers(2000, 2020, n), "release": rng.integers(0, 40, n)})
+    b = web_export._brier_vs(d, "model", "base")
+    assert b["diff"] > 0 and b["lo"] > 0 and b["brier_model"] < b["brier_base"]  # модель лучше константы
+    worse = web_export._brier_vs(d.assign(noise=rng.random(n)), "noise", "base")
+    assert worse["diff"] < 0 and worse["hi"] < 0
+    top = web_export._top_k(d, "model")
+    shares = [t["share"] for t in top]
+    assert shares == sorted(shares) and all(t["share"] > t["random"] for t in top)
+    assert web_export._wilson(0, 50)[0] == 0 and web_export._wilson(50, 50)[1] == pytest.approx(1)
+
+
+def test_bundle_check_matches_scorecard(bundle):
+    """Экран «Проверка» считает по тем же прогнозам вслепую, что `scorecard`: число оценок,
+    событий и AUC совпадают; калибровочные группы покрывают все оценки."""
+    ck = bundle["load"]("check.json")
+    score = pd.read_csv(REPORTS / "scorecard.csv")
+    ref = {"war25": ("pitf_state_war25", "мир, страны без войны в T"), "fxa": ("logit_long", "мир"), "fxm": ("logit", "мир"),
+           "fxm_live": ("live_fx_swap", "мир"), "bank": ("jst_extree", "страны BIS вне JST")}
+    for key, (model, sample) in ref.items():
+        cell = ck["contours"][key]["cells"]["world|all"]
+        r = score[(score.model == model) & (score["sample"] == sample)].iloc[0]
+        assert (cell["n"], cell["events"]) == (r.n, r.positives), key
+        assert cell["auc"]["pooled"] == pytest.approx(r.auc, abs=1e-4) and cell["auc"]["lo"] == pytest.approx(r.auc_lo, abs=1e-4)
+        assert cell["auc"]["within_year"] == pytest.approx(r.auc_within_year, abs=1e-4)
+    for key, c in ck["contours"].items():
+        for name, cell in c["cells"].items():
+            assert sum(b["n"] for b in cell["reliability"]) == cell["n"], (key, name)
+            assert sum(b["events"] for b in cell["reliability"]) == cell["events"], (key, name)
+            for b in cell["brier"]:
+                assert b["lo"] <= b["diff"] <= b["hi"] and b["diff"] == pytest.approx(b["brier_base"] - b["brier_model"], abs=2e-5)
+            assert [t["k"] for t in cell["top_k"]] == ck["k"]
+            assert all(0 <= t["share"] <= 1 and t["caught"] <= t["events"] for t in cell["top_k"])
+    # слабое место не спрятано: месячная модель на постсоветских не лучше базы
+    ps = ck["contours"]["fxm"]["cells"]["ps|all"]
+    assert ps["auc"]["pooled"] < 0.5 and ps["brier"][0]["diff"] < 0
+    for rib in ("fxm", "bank"):
+        r = bundle["load"](f"oos/{rib}.json")
+        assert r["details"] is False and all(row[2] is None for y in r["years"] for row in y["rows"])  # интервала в этих лентах нет
+
+
+def test_site_check_p4_and_mobile():
+    """Формулировки и поведение чекпоинта 5.3 на месте."""
+    text = "\n".join(p.read_text() for p in JS)
+    for phrase in ("Посмотреть выпуск без знания исходов", "Показать исходы", "Соответствуют ли вероятности наблюдаемым частотам?",
+                   "Лучше ли модель наивной базы?", "Сколько событий попадает в поле внимания?", "Диагональ — совпадение вероятности и частоты",
+                   "Выше нуля — меньшая ошибка у модели", "Исследовательский порог. Он не меняет исторически опубликованные сигналы",
+                   "Дополнительные метрики", "Публичные выпуски", "Структурная уязвимость и текущее давление",
+                   "Текущее валютное давление, σ", "Вероятность годового обвала курса, %"):
+        assert phrase in text, phrase
+    check = (WEB / "js" / "views" / "check.js").read_text()
+    assert "blind" in check and "Слой исходов скрыт" in check
+    lib = (WEB / "js" / "lib.js").read_text()
+    assert "r[5] && !blind" in lib  # в режиме без исходов отметки событий на ленте не рисуются
+    css = (WEB / "css" / "styles.css").read_text()
+    assert "@media (max-width: 720px)" in css and ".ctx-col { display: none; }" in css and "tr.exp { display: table-row; }" in css

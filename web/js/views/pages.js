@@ -1,26 +1,5 @@
-// «Метод и данные» и временная страница «Проверка» (полный экран — чекпоинт 5.3).
-import { S, load, esc, num, href, dateRu, statesLegend } from "../lib.js";
-
-export async function check(el) {
-  const sc = await load("scorecard.json");
-  const f = (x) => (x === null ? "—" : num(x, 3));
-  el.innerHTML = `
-  <section class="section" style="padding-top:30px">
-    <div class="section-head"><div><h1>Проверка прогнозов</h1>
-      <p>Все проверяемые оценки, включая высокие вероятности без события и события при низких вероятностях.</p></div></div>
-    <div class="plate"><b>Экран в работе.</b> Калибровка, сравнение с наивной базой, доля событий в верхних k странах и просмотр выпуска без знания исходов появятся в следующем чекпоинте. Пока здесь — сводная таблица качества из проверки вслепую, как она есть в <span class="mono">${esc(sc.file)}</span>.</div>
-    <p class="small muted" style="margin:14px 0 6px;max-width:90ch">${esc(sc.method)} AUC — доля пар «событие / не событие», которые модель упорядочила правильно: 0,5 — монетка, 1 — идеально.</p>
-    <div class="tbl-scroll"><table class="tbl">
-      <thead><tr><th>Событие</th><th>Выборка</th><th>Модель</th><th>Прогнозов</th><th>Событий</th><th>Годы</th><th>AUC сквозной [95 %]</th><th>AUC внутри года</th><th>Brier</th><th>Δ AUC к базе [95 %]</th></tr></thead>
-      <tbody>${sc.rows.map((r) => `<tr><td class="small">${esc(r.block)}</td><td class="small">${esc(r.sample)}</td><td class="mono">${esc(r.model)}</td>
-        <td class="num">${r.n.toLocaleString("ru-RU")}</td><td class="num">${r.positives}</td><td class="num small">${esc(r.years)}</td>
-        <td class="num">${f(r.auc)} [${f(r.auc_lo)}; ${f(r.auc_hi)}]</td><td class="num">${f(r.auc_within_year)}</td><td class="num">${f(r.brier)}</td>
-        <td class="num small">${r.auc_vs_ref === null ? "—" : `${r.auc_vs_ref > 0 ? "+" : ""}${f(r.auc_vs_ref)} [${f(r.auc_vs_ref_lo)}; ${f(r.auc_vs_ref_hi)}] к ${esc(r.ref)}`}</td></tr>`).join("")}</tbody>
-    </table></div>
-    <p class="small faint" style="margin-top:12px">У баз <span class="mono">decay</span> и <span class="mono">persist</span> балл — не вероятность: их Brier с остальными не сравнивается. На постсоветской подвыборке месячная валютная модель не лучше монетки — это видно в таблице и не скрывается.</p>
-    <div class="links" style="margin-top:18px"><a href="${href("")}">Лента проверки прошлым на главной</a><a href="${href("archive")}">Публичные выпуски</a></div>
-  </section>`;
-}
+// «Метод и данные»: протокол, лаги публикации, интервалы, ограничения, словарь состояний.
+import { S, load, esc, href, dateRu, statesLegend } from "../lib.js";
 
 export async function method(el, _p, q) {
   const m = await load("meta.json");

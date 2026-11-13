@@ -4,7 +4,8 @@ import { home } from "./views/home.js";
 import { forecasts } from "./views/forecasts.js";
 import { country } from "./views/country.js";
 import { archive, record } from "./views/archive.js";
-import { check, method } from "./views/pages.js";
+import { method } from "./views/pages.js";
+import { check } from "./views/check.js";
 
 const main = document.getElementById("main");
 const ROUTES = { "": home, forecasts, country, archive, record, check, method };

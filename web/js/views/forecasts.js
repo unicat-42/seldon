@@ -1,6 +1,6 @@
 // Скринер «Прогнозы»: P1 заголовок и выпуск, P2 управление, P3 таблица и инспектор.
 // Всё состояние (выпуск, событие, группа, сортировка, поиск, выбранная страна) живёт в адресе.
-import { S, release, releaseList, esc, pct, dateRu, href, nameOf, state, stateText, stateDetail, estCell, scaleMax, scaleLegend,
+import { S, load, niceMax, num, release, releaseList, esc, pct, dateRu, href, nameOf, state, stateText, stateDetail, estCell, scaleMax, scaleLegend,
   statesLegend, interval, ctxLine, EVENTS, DOMAIN, domainOf, ownWarEvent, setQuery, signed } from "../lib.js";
 
 const DEFAULT_EVENT = { war: "war25_onset", fx: "fxa", bank: "bank" };
@@ -66,12 +66,14 @@ export async function forecasts(el, _parts, q, { samePage }) {
   const rowHtml = (r, i) => `<tr class="row ${r.iso3 === sel ? "sel" : ""} dom-${domain}" data-iso="${r.iso3}">
       <td class="rk num">${i ?? ""}</td>
       <td class="name"><a href="${href("country/" + r.iso3, carried)}">${esc(nameOf(r.iso3))}</a>${r.post_soviet && st.group === "world" ? '<span class="ps-mark" title="постсоветская страна"></span>' : ""}</td>
-      <td class="dom-war">${cell(r, "war")}</td><td class="dom-fx">${cell(r, "fx")}</td><td class="dom-bank">${cell(r, "bank")}</td></tr>`;
+      ${["war", "fx", "bank"].map((d) => `<td class="dom-${d} ${d === domain ? "" : "ctx-col"}">${cell(r, d)}</td>`).join("")}</tr>
+      ${r.iso3 === sel ? `<tr class="exp dom-${domain}"><td colspan="5"><div class="exp-ctx">${["war", "fx", "bank"].filter((d) => d !== domain).map((d) => `<div class="dom-${d}"><div class="eyebrow"><span class="dot"></span>${DOMAIN[d]}</div>${cell(r, d)}</div>`).join("")}</div>
+        <div class="exp-ins">${inspector(rel, st, sel, max, carried)}</div></td></tr>` : ""}`;
   const head = (d) => {
     const ev = d === "war" && !cols.war ? "war25_onset" : cols[d];
     const c = ev ? rel.contexts[ev] : null;
     const t = d === "war" && !cols.war ? "начало или продолжение, ≥ 25" : c?.short;
-    return `<th class="dom-${d} ${d === domain ? "active" : ""}" scope="col"><span class="dot"></span>${DOMAIN[d]}${c ? `<small>${esc(t)}${c.target_period ? " · " + esc(c.target_period) : ""}</small>` : ""}</th>`;
+    return `<th class="dom-${d} ${d === domain ? "active" : "ctx-col"}" scope="col"><span class="dot"></span>${DOMAIN[d]}${c ? `<small>${esc(t)}${c.target_period ? " · " + esc(c.target_period) : ""}</small>` : ""}</th>`;
   };
 
   el.innerHTML = `
@@ -104,7 +106,7 @@ export async function forecasts(el, _parts, q, { samePage }) {
             · <a href="#" id="sort">${st.sort === "name" ? "сортировать по оценке" : "сортировать по названию"}</a></div>
           ${scaleLegend()}
         </div>
-        <div class="tbl-scroll"><table class="tbl">
+        <div class="tbl-scroll"><table class="tbl main">
           <thead><tr><th scope="col" class="num" style="text-align:right;padding-right:12px">${ctx.observed ? "" : "Место"}</th><th scope="col">Страна</th>${head("war")}${head("fx")}${head("bank")}</tr></thead>
           <tbody>
             ${ranked.map((r) => rowHtml(r, ctx.observed ? null : r.est[event].rank)).join("") || `<tr><td colspan="5" class="muted" style="padding:18px 10px">В этой группе нет стран с числовой оценкой по выбранному событию.</td></tr>`}
@@ -114,9 +116,11 @@ export async function forecasts(el, _parts, q, { samePage }) {
         </table></div>
         <p class="small faint" style="margin-top:12px">Место считается в мировой выборке события и не меняется при выборе региональной группы. Шкала в колонке общая для всех стран.</p>
       </div>
-      <aside class="c3"><div class="inspector">${inspector(rel, st, sel, max, carried)}</div></aside>
+      <aside class="c3 insp-side"><div class="inspector">${inspector(rel, st, sel, max, carried)}</div></aside>
     </div>
   </section>
+
+  ${domain === "fx" ? await p4(rel, sel, carried) : ""}
 
   <section class="section"><div class="section-head"><div><h2>Как читать состояния</h2><p>Причина отсутствия оценки всегда написана словами. Отсутствие оценки не означает низкий риск.</p></div></div>${statesLegend()}</section>`;
 
@@ -130,6 +134,7 @@ export async function forecasts(el, _parts, q, { samePage }) {
   tq.oninput = () => { clearTimeout(tq._t); tq._t = setTimeout(() => { typing = true; setQuery({ q: tq.value || null }); }, 180); };
   if (samePage && typing) { tq.focus(); tq.setSelectionRange(tq.value.length, tq.value.length); }
   typing = false;
+  el.querySelector("#p4")?.addEventListener("click", (e) => { const c = e.target.closest("[data-id]"); if (c) setQuery({ sel: c.dataset.id === sel ? null : c.dataset.id }); });
   el.querySelector("tbody").onclick = (e) => {
     if (e.target.closest("a")) return;
     const tr = e.target.closest("tr.row");
@@ -177,4 +182,65 @@ function inspector(rel, st, sel, max, carried) {
     ${body}
     ${ctxLine(rel, st.event, { asOf })}
     <div class="links" style="margin-top:14px"><a class="btn sm" href="${href("country/" + sel, carried)}">Открыть страну</a>${e?.p !== undefined ? `<a href="${recHref}">Открыть запись прогноза</a>` : ""}</div>`;
+}
+
+// ---------------------------------------------------------------- P4: структура и давление
+/** Валютный вид: по горизонтали — годовая вероятность обвала, по вертикали — текущее давление.
+ *  Все точки одного размера; месячная вероятность выводится текстом. У выбранной страны — след
+ *  последних месяцев: давление меняется помесячно, годовой прогноз — ступенькой 1 января, без сглаживания. */
+async function p4(rel, sel, carried) {
+  const cx = rel.contexts.fxa, cs = rel.contexts.stress;
+  if (!cx || !cs) return `<section class="section" id="p4"><div class="section-head"><div><h2>Структурная уязвимость и текущее давление</h2></div></div>
+    <p class="plate">В выпуске ${dateRu(rel.id)} текущее давление не публиковалось — этот вид доступен только для текущего расчёта.</p></section>`;
+  const pts = [...rel.rows.values()].filter((r) => r.est.fxa?.p !== undefined && r.est.stress?.value != null)
+    .map((r) => ({ id: r.iso3, x: r.est.fxa.p, y: r.est.stress.value, ps: r.post_soviet }));
+  const W = 1180, H = 440, L = 62, R = 24, T = 22, B = 50, CAP = 8;
+  const maxX = niceMax(Math.max(...pts.map((p) => p.x)));
+  const y0 = Math.floor(Math.min(...pts.map((p) => p.y), -1)), y1 = Math.min(Math.ceil(Math.max(...pts.map((p) => p.y))), CAP);
+  const X = (v) => L + Math.sqrt(Math.min(v, maxX) / maxX) * (W - L - R), Y = (v) => T + (1 - (Math.min(v, y1) - y0) / (y1 - y0)) * (H - T - B);
+  const capped = pts.filter((p) => p.y > y1).length;
+  let trail = "", note = "";
+  const row = sel ? rel.rows.get(sel) : null;
+  if (row && row.est.fxa?.p !== undefined && row.est.stress?.value != null) {
+    const d = await load(`country/${sel}.json`);
+    const Ty = cx.features_year;  // оценка на 1 января Ty+1 действует в месяцах года Ty+1; годом раньше — проверочная
+    const seq = (d.emp ?? []).filter((m) => m[1] !== null).map(([m, v]) => ({ m, v, x: +m.slice(0, 4) > Ty ? row.est.fxa.p : row.est.fxa_check?.p }))
+      .filter((p) => p.x !== undefined);
+    if (seq.length > 1) {
+      trail = `<polyline fill="none" stroke="var(--ink)" stroke-width="1.2" points="${seq.map((p) => `${X(p.x).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ")}"/>
+        ${seq.map((p) => `<circle cx="${X(p.x)}" cy="${Y(p.v)}" r="2.2" fill="var(--ink)"><title>${dateRu(p.m)}: ${num(p.v, 1)} σ</title></circle>`).join("")}
+        <text class="sp-lbl" x="${X(seq[0].x) + 7}" y="${Y(seq[0].v) + 4}">${dateRu(seq[0].m)}</text>`;
+      const step = seq.find((p, i) => i && p.x !== seq[i - 1].x);
+      note = `След: ${seq.length} месяцев, ${dateRu(seq[0].m)} – ${dateRu(seq.at(-1).m)}. Давление меняется каждый месяц; годовая оценка — ступенькой${step ? ` 1 января ${Ty + 1}: с ${pct(seq[0].x)} (оценка на 1 января ${Ty}, период ${Ty}–${Ty + 1}) до ${pct(row.est.fxa.p)}` : " не менялась"}. Линия между месяцами не сглажена.`;
+    }
+  }
+  const yt = []; for (let v = y0; v <= y1; v += Math.max(1, Math.round((y1 - y0) / 6))) yt.push(v);
+  const xt = [0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1].filter((t) => t <= maxX + 1e-9);
+  const order = [...pts].sort((a, b) => (a.id === sel) - (b.id === sel) || a.ps - b.ps);
+  const s = pts.find((p) => p.id === sel);
+  return `<section class="section dom-fx" id="p4">
+    <div class="section-head"><div><h2>Структурная уязвимость и текущее давление</h2>
+      <p>Две разные величины на одном поле: вероятность — по горизонтали, наблюдаемое давление — по вертикали. Нажмите на точку, чтобы выбрать страну и увидеть её след.</p></div></div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible" role="img" aria-label="Вероятность годового обвала курса и текущее валютное давление по странам">
+      ${yt.map((v) => `<line class="hp-grid" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text class="hp-axis" x="${L - 8}" y="${Y(v) + 4}" text-anchor="end">${v > 0 ? "+" : ""}${v}</text>`).join("")}
+      ${xt.map((v) => `<line class="hp-grid" x1="${X(v)}" x2="${X(v)}" y1="${T}" y2="${H - B}" stroke-dasharray="2 4"/><text class="hp-axis" x="${X(v)}" y="${H - B + 16}" text-anchor="middle">${num(100 * v, 0)}</text>`).join("")}
+      <line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--rule-2)"/>
+      ${order.map((p) => (p.y > y1
+        ? `<path data-id="${p.id}" d="M${X(p.x) - 4.5} ${T + 5}L${X(p.x) + 4.5} ${T + 5}L${X(p.x)} ${T - 3}Z" class="${p.id === sel ? "sp-sel" : p.ps ? "sp-ps" : "sp-dot"}" style="cursor:pointer"><title>${esc(nameOf(p.id))}: ${num(p.y, 1)} σ — выше шкалы</title></path>`
+        : `<circle data-id="${p.id}" class="${p.id === sel ? "sp-sel" : p.ps ? "sp-ps" : "sp-dot"}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${p.id === sel ? 5.5 : 4}" style="cursor:pointer"><title>${esc(nameOf(p.id))}</title></circle>`)).join("")}
+      ${trail}
+      ${s ? `<text class="sp-name" x="${Math.min(X(s.x) + 9, W - 150)}" y="${Y(s.y) - 9}">${esc(nameOf(s.id))}</text>` : ""}
+      <text class="hp-axis" x="${(W + L) / 2}" y="${H - 8}" text-anchor="middle">Вероятность годового обвала курса, % · ${esc(cx.target_period)} · шкала квадратного корня</text>
+      <text class="hp-axis" transform="translate(14 ${(H - B + T) / 2}) rotate(-90)" text-anchor="middle">Текущее валютное давление, σ · ${esc(dateRu(cs.as_of.split(" … ")[0]))} – ${esc(dateRu(cs.as_of.split(" … ").pop()))}</text>
+    </svg>
+    <div class="legend" style="margin-top:8px"><span><svg viewBox="0 0 12 12" style="width:12px"><circle class="sp-dot" cx="6" cy="6" r="4"/></svg>страна мира</span>
+      <span><svg viewBox="0 0 12 12" style="width:12px"><circle class="sp-ps" cx="6" cy="6" r="4"/></svg>постсоветская страна</span>
+      <span><svg viewBox="0 0 12 12" style="width:12px"><circle class="sp-sel" cx="6" cy="6" r="4.5"/></svg>выбранная страна</span>
+      ${capped ? `<span><svg viewBox="0 0 12 12" style="width:12px"><path class="sp-dot" d="M1.5 10L10.5 10L6 2Z"/></svg>давление выше +${y1} σ (${capped}): отметка у верхней кромки</span>` : ""}
+      <span>все точки одного размера — третья величина размером не кодируется</span></div>
+    ${s ? `<div class="plate fx" style="margin-top:14px"><b>${esc(nameOf(s.id))}.</b> Годовой обвал ${esc(cx.target_period)}: <span class="num">${pct(s.x)}</span> · давление на ${dateRu(row.fx_as_of)}: <span class="num">${num(s.y, 1)} σ</span>
+        · месячный обвал, 12 месяцев: <span class="num">${row.est.fxm?.p !== undefined ? pct(row.est.fxm.p) : "нет оценки"}</span>. ${esc(note)}
+        <a href="${href("country/" + s.id, carried)}">Открыть страну</a></div>`
+      : `<p class="small faint" style="margin-top:10px">На поле ${pts.length} стран: те, у кого есть и годовая оценка, и свежее давление. Давление — наблюдение в стандартных отклонениях, не вероятность.</p>`}
+  </section>`;
 }

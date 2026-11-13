@@ -860,6 +860,172 @@ def build_history(dossier: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Экран «Проверка» (чекпоинт 5.3): калибровка, Brier против базы, верхние k
+# ---------------------------------------------------------------------------
+
+CHECK_BINS = 8
+CHECK_K = (5, 10, 20)
+CHECK_BOOT = 500
+
+
+def _wilson(k: int, n: int) -> tuple[float, float]:
+    """95 % интервал Уилсона для доли k из n."""
+    if n == 0:
+        return float("nan"), float("nan")
+    z, ph = 1.959964, k / n
+    c = (ph + z * z / (2 * n)) / (1 + z * z / n)
+    h = z * np.sqrt(ph * (1 - ph) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return max(c - h, 0.0), min(c + h, 1.0)
+
+
+def _reliability(p: np.ndarray, y: np.ndarray, bins: int = CHECK_BINS) -> list[dict]:
+    """Группы равного размера по оценке: средняя оценка, наблюдаемая частота, размер, интервал."""
+    order = np.argsort(p, kind="stable")
+    out = []
+    for idx in np.array_split(order, min(bins, max(1, len(p) // 20))):
+        if len(idx) == 0:
+            continue
+        k, n = int(y[idx].sum()), len(idx)
+        lo, hi = _wilson(k, n)
+        out.append({"p": num(p[idx].mean()), "freq": num(k / n), "lo": num(lo), "hi": num(hi), "n": n, "events": k,
+                    "p_min": num(p[idx].min()), "p_max": num(p[idx].max())})
+    return out
+
+
+def _brier_vs(d: pd.DataFrame, model: str, base: str, seed: int = 0) -> dict:
+    """Разность Brier базы и модели (выше нуля — у модели ошибка меньше) с 95 % интервалом:
+    блочный бутстрэп по годам, обе модели на одной и той же выборке лет."""
+    g = d.assign(em=(d[model] - d.y) ** 2, eb=(d[base] - d.y) ** 2).groupby("year").agg(em=("em", "sum"), eb=("eb", "sum"), n=("y", "size"))
+    em, eb, n = g.em.to_numpy(), g.eb.to_numpy(), g.n.to_numpy()
+    rng = np.random.default_rng(seed)
+    pick = rng.integers(0, len(g), size=(CHECK_BOOT, len(g)))
+    diffs = (eb[pick].sum(1) - em[pick].sum(1)) / n[pick].sum(1)
+    bm, bb = em.sum() / n.sum(), eb.sum() / n.sum()
+    return {"brier_model": num(bm, 5), "brier_base": num(bb, 5), "diff": num(bb - bm, 5),
+            "lo": num(np.percentile(diffs, 2.5), 5), "hi": num(np.percentile(diffs, 97.5), 5),
+            "skill": num(1 - bm / bb, 4) if bb > 0 else None}
+
+
+def _top_k(d: pd.DataFrame, model: str) -> list[dict]:
+    """Доля событий, попавших в верхние k стран каждого выпуска (выпуск — колонка `release`)."""
+    out = []
+    events = int(d.y.sum())
+    sizes = d.groupby("release").size()
+    for k in CHECK_K:
+        top = d.sort_values(model, ascending=False).groupby("release").head(k)
+        out.append({"k": k, "caught": int(top.y.sum()), "events": events, "share": num(top.y.sum() / events) if events else None,
+                    "random": num(float((np.minimum(k, sizes) / sizes * d.groupby("release").y.sum()).sum() / events)) if events else None})
+    return out
+
+
+def _check_cell(d: pd.DataFrame, model: str, bases: dict[str, str], score_row: dict | None) -> dict | None:
+    from seldon.core.metrics import auc, auc_within
+
+    d = d[d[model].notna() & d.y.notna()]
+    if len(d) < 40 or d.y.nunique() < 2:
+        return None
+    p, y = d[model].to_numpy(dtype=float), d.y.to_numpy(dtype=float)
+    cell = {"n": len(d), "events": int(y.sum()), "base_rate": num(y.mean()), "years": f"{int(d.year.min())}–{int(d.year.max())}",
+            "reliability": _reliability(p, y),
+            "brier": [{"base": k, "label": lbl, **_brier_vs(d[d[k].notna()], model, k)} for k, lbl in bases.items() if k in d and d[k].notna().any()],
+            "top_k": _top_k(d, model), "releases": int(d.release.nunique()),
+            "auc": {"pooled": num(auc(y, p)), "within_year": num(auc_within(y, p, d.year))}}
+    if score_row is not None:  # та же выборка есть в сводке качества — берём интервал оттуда
+        cell["auc"].update({"pooled": num(score_row["auc"]), "lo": num(score_row["auc_lo"]), "hi": num(score_row["auc_hi"]),
+                            "within_year": num(score_row["auc_within_year"]), "source": "reports/scorecard.csv"})
+    return cell
+
+
+def build_check(score: pd.DataFrame) -> tuple[dict, dict]:
+    """Данные экрана «Проверка» — только по сохранённым прогнозам вслепую, без обучения.
+    Возвращает (check.json, дополнительные ленты: месячный валютный по январским срезам, банки)."""
+    from seldon.domains.banking.econ_boe_em import JST_ISO
+
+    def srow(block, sample, model):
+        r = score[(score.block == block) & (score["sample"] == sample) & (score.model == model)]
+        return None if r.empty else r.iloc[0].to_dict()
+
+    # --- таблицы прогнозов: колонки y, year, release, post_soviet, id
+    w = pd.read_parquet(DATA_PROCESSED / "pitf_state_war25_predictions.parquet")
+    w = w[w.at_risk == 1].rename(columns={"onset_state_war25": "y", "pitf_state_war25": "model"})
+    w["id"] = [GW_TO_ISO3.get(int(g)) or f"GW{g}" for g in w.gw]
+    w["post_soviet"], w["release"] = w.id.isin(POST_SOVIET_ISO3), w.year
+    # наивная база: доля начал среди мирных стран во все предыдущие годы проверки (только прошлое)
+    by = w.groupby("year").y.agg(["sum", "size"]).sort_index()
+    past = (by["sum"].cumsum().shift(1) / by["size"].cumsum().shift(1))
+    w["base_rate"] = w.year.map(past)
+    fa = pd.read_parquet(DATA_PROCESSED / "econ_long_predictions.parquet", columns=["iso3", "year", "y", "logit_long", "extree_long", "extree_short", "base_rate", "persist", "post_soviet"])
+    fa = fa[fa.extree_long.notna() & fa.extree_short.notna()].rename(columns={"iso3": "id", "logit_long": "model"})
+    fa["release"] = fa.year
+    fm = pd.read_parquet(DATA_PROCESSED / "econ_kr_predictions_deval15.parquet", columns=["iso3", "month", "y", "logit", "base_rate", "pressure", "post_soviet"])
+    fm = fm.rename(columns={"iso3": "id", "logit": "model", "month": "release"})
+    fm["year"] = fm.release.str[:4].astype(int)
+    fl = pd.read_parquet(DATA_PROCESSED / "econ_live_fx_predictions.parquet").rename(columns={"iso3": "id", "live_fx_swap": "model", "month": "release", "logit": "champion"})
+    fl["year"] = fl.release.str[:4].astype(int)
+    fl = fl.merge(fm[["id", "release", "base_rate"]], on=["id", "release"], how="left")
+    b = pd.read_parquet(DATA_PROCESSED / "boe_em_predictions.parquet")
+    b = b[(b.feature_set == "full") & ~b.iso.isin(JST_ISO)].rename(columns={"iso": "id", "jst_extree": "model", "crisis": "y"})
+    b["release"], b["post_soviet"] = b.year, b.id.isin(POST_SOVIET_ISO3)
+
+    B = "Базовая частота: доля событий в прошлом, одна для всех стран"
+    specs = [
+        ("war25", "war", "Начало конфликта, ≥ 25 погибших", "1 год", w, {"base_rate": B, "decay_cal": "Память о войне (decay), переведённая в вероятность"},
+         {"world": ("Мир: страны без войны в году выпуска", None, ("война: начало state_war25 в T+1", "мир, страны без войны в T", "pitf_state_war25")),
+          "quiet10": ("Мирные страны: без войны ≥ 10 лет", lambda d: d.years_since_war >= 10, None),
+          "ps": ("Постсоветские страны", lambda d: d.post_soviet, None)}, "model_hist pitf · логрегрессия начала"),
+        ("fxa", "fx", "Девальвация ≥ 25 % за год", "2 года", fa, {"base_rate": B, "persist": "Была девальвация в последние 5 лет (persist)"},
+         {"world": ("Мир: страны и территории со своей валютой", None, ("валютный кризис, год: deval25 в t+1…t+2", "мир", "logit_long")),
+          "ps": ("Постсоветские страны", lambda d: d.post_soviet, ("валютный кризис, год: deval25 в t+1…t+2", "постсоветские", "logit_long"))}, "econ_long logit_long · логрегрессия"),
+        ("fxm", "fx", "Скачок курса ≥ 15 % за месяц", "12 месяцев", fm, {"base_rate": B, "pressure": "Текущее давление на курс (pressure)"},
+         {"world": ("Мир: страны со своей валютой", None, ("валютный кризис, месяц: deval15 за 12 мес", "мир", "logit")),
+          "ps": ("Постсоветские страны", lambda d: d.post_soviet, ("валютный кризис, месяц: deval15 за 12 мес", "постсоветские", "logit"))}, "econ_kr logit · логрегрессия"),
+        ("fxm_live", "fx", "Скачок курса ≥ 15 % за месяц, модель-претендент", "12 месяцев", fl, {"base_rate": B, "champion": "Основная месячная модель (econ_kr logit)"},
+         {"world": ("Мир: страны со своей валютой", None, ("валютный кризис, месяц: deval15 за 12 мес, претендент", "мир", "live_fx_swap")),
+          "ps": ("Постсоветские страны", lambda d: d.post_soviet, ("валютный кризис, месяц: deval15 за 12 мес, претендент", "постсоветские", "live_fx_swap"))}, "econ_csd live_fx_swap · логрегрессия"),
+        ("bank", "bank", "Системный банковский кризис", "2 года", b, {"base_rate": B},
+         {"world": ("Страны BIS вне выборки обучения (JST)", None, ("банковский кризис в t+1…t+2, набор full", "страны BIS вне JST", "jst_extree"))}, "econ_boe_em jst_extree, набор full · ExtraTrees"),
+    ]
+    contours = {}
+    for key, dom, title, horizon, d, bases, samples, model in specs:
+        cells = {}
+        for skey, (label, flt, sc) in samples.items():
+            sub = d if flt is None else d[flt(d)]
+            for pkey, lo in (("all", None), ("2010", 2010)):
+                part = sub if lo is None else sub[sub.year >= lo]
+                cell = _check_cell(part, "model", bases, srow(*sc) if (sc and lo is None) else None)
+                if cell:
+                    cells[f"{skey}|{pkey}"] = cell
+        contours[key] = {"domain": dom, "title": title, "horizon": horizon, "model": model, "monthly": key.startswith("fxm"),
+                         "samples": {k: v[0] for k, v in samples.items()}, "cells": cells}
+    # --- дополнительные ленты: месячная модель по январским срезам, банки
+    ribbons = {}
+    jan = fm[fm.release.str.endswith("-01") & fm.model.notna()]
+    ribbons["fxm"] = _plain_ribbon(jan, "fxm", "fx", "Скачок курса ≥ 15 % за месяц",
+                                   "Скачок курса к доллару ≥ 15 % за один месяц в течение 12 месяцев после среза; показаны январские срезы каждого года",
+                                   "12 месяцев", lambda r: (f"{r}", f"{r[:4]}-02 … {int(r[:4]) + 1}-01", f"{r}-31"), "МВФ, месячные ряды", "econ_kr logit · логрегрессия")
+    ribbons["bank"] = _plain_ribbon(b[b.model.notna()], "bank", "bank", "Системный банковский кризис",
+                                    "Системный банковский кризис в одном из двух лет после выпуска; страны BIS вне выборки обучения (JST)",
+                                    "2 года", lambda r: (int(r), f"{int(r) + 1}–{int(r) + 2}", f"{int(r) + 1}-01-01"), "BIS, Global Macro Database",
+                                    "econ_boe_em jst_extree, набор full · ExtraTrees")
+    return {"contours": contours, "k": list(CHECK_K), "bins": CHECK_BINS,
+            "method": "Все числа посчитаны по сохранённым прогнозам проверки вслепую. Интервалы частот — Уилсона; интервал разности Brier — блочный бутстрэп по годам, 500 реплик."}, ribbons
+
+
+def _plain_ribbon(d: pd.DataFrame, contour: str, dom: str, title: str, event: str, horizon: str, describe, source: str, model: str) -> dict:
+    """Лента рангов без интервалов и вкладов (для экрана «Проверка»)."""
+    years = []
+    for rel, g in d.groupby("release"):
+        g = g.sort_values("model", ascending=False)
+        rk = _rank(g.model)
+        release, target, as_of = describe(rel)
+        years.append({"release": release, "target": target, "as_of": as_of, "n": len(g), "events": int(g.y.sum()),
+                      "rows": [[i, num(p), None, None, int(r), int(y)] for i, p, r, y in zip(g.id, g.model, rk, g.y)]})
+    names = {i: country_name(i) for i in d.id.unique() if i not in COUNTRY_NAMES}
+    return {"contour": contour, "domain": dom, "title": title, "event": event, "horizon": horizon, "years": years, "extra_names": names,
+            "columns": ["id", "p", "lo", "hi", "rank", "outcome"], "source": source, "model": model, "details": False}
+
+
+# ---------------------------------------------------------------------------
 # Архив
 # ---------------------------------------------------------------------------
 
@@ -1009,6 +1175,7 @@ def main(argv: list[str]) -> int:
     ribbons, details = build_oos(service)
     build_history(dossier)
     archive = build_archive(risk, today, service["T_war"])
+    check, extra_ribbons = build_check(score)
 
     cases = []
     for c in CASES:
@@ -1029,8 +1196,9 @@ def main(argv: list[str]) -> int:
                                     "post_soviet": iso in POST_SOVIET_ISO3} for iso, (ru, en) in sorted(COUNTRY_NAMES.items(), key=lambda kv: kv[1][0])])
     for iso, d in dossier.items():
         _write(OUT / "country" / f"{iso}.json", d)
-    for name, rib in ribbons.items():
+    for name, rib in {**ribbons, **extra_ribbons}.items():
         _write(OUT / "oos" / f"{name}.json", rib)
+    _write(OUT / "check.json", check)
     for (name, T), det in details.items():
         _write(OUT / "oos" / name / f"{T}.json", _compact(det))
     rows = json.loads(score.to_json(orient="records", force_ascii=False))

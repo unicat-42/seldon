@@ -49,6 +49,7 @@ button, input, select { font: inherit; color: inherit; }
 .muted { color: var(--ink-2); } .faint { color: var(--ink-3); }
 .small { font-size: 13px; line-height: 1.45; } .tiny { font-size: 12px; line-height: 1.4; }
 .num { font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+p.num { white-space: normal; }
 .eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 500; }
 .lede { font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 62ch; }
 .loading { padding: 80px 0; color: var(--ink-3); }
@@ -211,7 +212,7 @@ select.field { min-width: 0; padding-right: 26px; }
 .ind { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 18px; margin-top: 10px; font-size: 13px; }
 .ind b { display: block; font-weight: 500; font-size: 15px; }
 .hist svg { display: block; width: 100%; height: auto; overflow: visible; }
-.hp-title { font: 500 12.5px var(--sans); fill: var(--ink); }
+.hp-title { font: 500 12.5px var(--sans); fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
 .hp-grid { stroke: var(--rule); } .hp-axis { font: 11px var(--sans); fill: var(--ink-3); }
 .hp-pt { fill: var(--dom); cursor: pointer; } .hp-pt.open { fill: var(--paper); stroke: var(--dom); stroke-width: 1.5; }
 .hp-line { fill: none; stroke: var(--dom); stroke-width: 1.2; opacity: .8; }
@@ -248,6 +249,46 @@ ul.plain li { margin: 4px 0; }
   .inspector { position: static; }
   h1 { font-size: 30px; } h2 { font-size: 23px; }
   .tbl-scroll { overflow-x: auto; } .tbl { min-width: 720px; }
+}
+tr.exp { display: none; }
+.exp-ctx { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; padding: 4px 0 14px; }
+.exp-ins { border-top: 1px solid var(--rule-2); padding-top: 12px; }
+
+/* ---------- мобильная версия (чекпоинт 5.3) ----------
+   Таблица сначала показывает выбранное событие; раскрытие строки добавляет остальные домены и
+   подробности оценки. Правые панели встают блоком под выбранным объектом. Широкие графики
+   прокручиваются по горизонтали, а не сжимаются до нечитаемых подписей. */
+@media (max-width: 720px) {
+  body { font-size: 15px; }
+  .wrap { padding: 0 14px; }
+  h1 { font-size: 27px; } h2 { font-size: 21px; } .big { font-size: 30px; }
+  .lede { font-size: 16px; }
+  .head-row { padding: 10px 14px; }
+  .search { width: 100%; order: 2; } .search-list { left: 0; right: 0; width: auto; }
+  .brand { order: 1; } .nav { order: 3; }
+  .hero { padding: 22px 0; } .section { padding-top: 30px; } .section + .section { margin-top: 30px; }
+  .section-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .controls { gap: 10px 14px; } .ctl { flex-wrap: wrap; gap: 6px 10px; }
+  .seg button { height: 38px; padding: 0 12px; } .chip { height: 36px; } .btn { height: 42px; } .btn.sm { height: 36px; }
+  .field { height: 38px; min-width: 0; width: 100%; }
+  .ctx-col { display: none; }
+  .tbl.main { min-width: 0; } .tbl.main td.rk { width: 30px; padding-right: 8px; }
+  .tbl td.name { white-space: normal; padding-left: 4px; }
+  tr.exp { display: table-row; } tr.exp td { background: var(--paper-2); padding: 12px 10px 16px; }
+  .insp-side { display: none; }
+  .est { grid-template-columns: 58px minmax(50px, 1fr); }
+  .now-row { gap: 10px; padding: 16px 0; }
+  .banner { flex-direction: column; align-items: flex-start; }
+  .ribbon, .hist, #p4, #fact { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ribbon svg { min-width: 620px; } .hist svg { min-width: 820px; } #p4 > svg { min-width: 700px; }
+  .factors { min-width: 620px; } .card .factors, details .factors { min-width: 0; }
+  .ind { grid-template-columns: 1fr 1fr; } .exp-ctx { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 1fr; gap: 2px 0; } .kv dd { margin-bottom: 8px; }
+  .prov div { flex-direction: column; gap: 2px; }
+  .anchors { gap: 18px; padding: 10px 0; }
+  .links { gap: 12px 16px; }
+  .legend { gap: 8px 16px; }
+  .foot-row { flex-direction: column; gap: 6px; }
 }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 @media print { .site-head, .site-foot, .anchors, .btn { display: none !important; } body { background: #fff; } }
