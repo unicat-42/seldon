@@ -3,6 +3,7 @@
 
 Запуск:
     uv run python -m seldon econ_csd [3] [6] [12]
+    uv run python -m seldon econ_csd live   # только претендент витрины, часть `make all`
 
 Проверяет:
   1. Добавляет ли CSD (`csd`, `csd_regime`) сигнал к боевому набору `ref`/`base` и к
@@ -13,7 +14,14 @@
      без артефакта `gg_missing` (ВБ IDS) и без задержек торговли (`IMTS`); нужен ли линейный
      `reserves_g12` рядом с `peg_resfall` (`live_fx` vs `live_fx_swap`).
 
+Претендент витрины (решение Ангелины 13.11.2026, развилка B1): боевой `ref` (`econ_kr`,
+`fx_deval15_12m`) остаётся, рядом публикуется `live_fx_swap` (`fx_deval15_12m_live`) — чтобы
+сравнить их проспективно, не ломая трек-рекорд. Режим `live` считает проверку вслепую только
+этих двух моделей на лёгкой панели (`light_panel`: `econ_kr` + структурные признаки, без
+торговой матрицы IMTS); `live_edge` — прогноз на живом крае для `risk_table`.
+
 Выход:
+    data/processed/econ_live_fx_predictions.parquet   (режим `live`; читает `scorecard`)
     data/processed/econ_csd_predictions_h{3,6,12}.parquet
     reports/fx_csd_comparison.csv
     reports/fx_csd_univariate.csv
@@ -53,6 +61,8 @@ DROP: dict[str, tuple[str, ...]] = {
     "live_fx_swap": ("reserves_g12",),
 }
 NAMES = list(SETS)
+CHALLENGER = "live_fx_swap"          # претендент витрины рядом с боевым `ref`
+LIVE_NAMES = ["ref", CHALLENGER]     # что считает режим `live` (нужны только живые признаки)
 
 
 def features(name: str) -> list[str]:
@@ -80,13 +90,69 @@ def load_full_panel(last_month: str = struct_features.LAST_MONTH) -> pd.DataFram
         return csd_features.build_fx_csd(p)
 
     # Расширенный срез на текущий край (например `2026-10`)
-    st = struct_features.load_struct(last_month=last_month, filled=True)
-    # `econ_kr.build_panel` + `peg_resfall` без тяжелого паркета IMTS 1948–2025, если `live_fx`
     raw = econ_kr.load_panel(last_month)
     p = econ_kr.build_panel(raw, econ_contagion.load_annual_cpi(), econ_contagion.load_war(), target=KR_TARGET)
-    p = struct_features.attach(p, st, ["iso3", "month"])
+    return light_panel(p, struct_features.load_struct(last_month=last_month, filled=True))
+
+
+def light_panel(kr_panel: pd.DataFrame, struct: pd.DataFrame) -> pd.DataFrame:
+    """Лёгкая панель для живых наборов `live_fx*`: панель `econ_kr` + структурные признаки
+    (`struct` — таблица `struct_features` с флагами) + `peg_resfall` + CSD. Без торговой матрицы
+    IMTS и замороженных архивов: хватает для `ref`, `live_fx`, `live_fx_swap`."""
+    p = struct_features.attach(kr_panel, struct, ["iso3", "month"])
     p["peg_resfall"] = p.peg_share12.fillna(0.0) * (-p.reserves_g12).clip(lower=0.0).fillna(0.0)
     return csd_features.build_fx_csd(p)
+
+
+def stale_fill(p: pd.DataFrame, test: pd.DataFrame, struct_raw: pd.DataFrame, reer_max_stale: int, res_max_stale: int) -> pd.DataFrame:
+    """Живой край: на строках `test` (одна на страну, колонка `as_of` — её последний месяц с
+    курсом) подставить REER и резервы последним непустым значением своей страны за месяцы
+    ≤ `as_of` и не старше `reer_max_stale` / `res_max_stale` месяцев. Вперёд не заглядывает.
+    `struct_raw` — таблица `struct_features` без заполнения (`filled=False`)."""
+    as_of_map = test[["iso3", "as_of"]]
+    age = lambda d: (d.as_of - d.month).map(lambda x: x.n)  # noqa: E731
+    st = struct_raw.merge(as_of_map, on="iso3")
+    st = st[st.month <= st.as_of]
+    st = st[st.reer_gap.notna() & (age(st) <= reer_max_stale)]
+    reer_last = st.sort_values("month").groupby("iso3")[["reer_gap", "reer_peg"]].last()
+    rs = p[p.reserves_g12.notna()].merge(as_of_map, on="iso3")
+    rs = rs[rs.month <= rs.as_of]
+    rs = rs[age(rs) <= res_max_stale]
+    res_last = rs.sort_values("month").groupby("iso3").reserves_g12.last()
+
+    out = test.copy()
+    has_reer = out.iso3.isin(reer_last.index)
+    out.loc[has_reer, "reer_gap"] = out.loc[has_reer, "iso3"].map(reer_last["reer_gap"])
+    out.loc[has_reer, "reer_peg"] = out.loc[has_reer, "iso3"].map(reer_last["reer_peg"])
+    out.loc[has_reer, "reer_missing"] = 0
+    has_res = out.iso3.isin(res_last.index)
+    out.loc[has_res, "reserves_g12"] = out.loc[has_res, "iso3"].map(res_last)
+    out["peg_resfall"] = out.peg_share12.fillna(0.0) * (-out.reserves_g12).clip(lower=0.0).fillna(0.0)
+    out["peg_resfall_missing"] = out.reserves_g12.isna().astype(int)
+    return out
+
+
+def live_edge(p: pd.DataFrame, struct_raw: pd.DataFrame, rows: pd.DataFrame, as_of: pd.Period, name: str = CHALLENGER,
+              h: int = 12, reer_max_stale: int = 3, res_max_stale: int = 3) -> pd.DataFrame:
+    """Прогноз набора `name` на живом крае: `rows` (iso3, as_of — последний месяц с курсом
+    страны, ≤ `as_of`). Обучение — окна, закрывшиеся к `as_of`; на строках прогноза REER и
+    резервы дотянуты (`stale_fill`). Возвращает iso3, p, C и флаги пропусков после дотягивания."""
+    test = p.merge(rows[["iso3", "as_of"]], on="iso3")
+    test = stale_fill(p, test[test.month == test.as_of], struct_raw, reer_max_stale, res_max_stale)
+    out = _predict(p, as_of, test, name, h)
+    test["p"], test["C"] = (np.nan, np.nan) if out is None else out
+    return test[["iso3", "p", "C", "reer_missing", "peg_resfall_missing"]].reset_index(drop=True)
+
+
+def run_live() -> pd.DataFrame:
+    """Проверка вслепую боевого `ref` и претендента на лёгкой панели, горизонт 12 месяцев."""
+    raw = econ_kr.load_panel()
+    p = light_panel(econ_kr.build_panel(raw, econ_contagion.load_annual_cpi(), econ_contagion.load_war(), target=KR_TARGET),
+                    struct_features.load_struct())
+    pr = run(p, econ_kr.H, LIVE_NAMES)
+    pr = pr[pr.evaluable & (pr.month.dt.year >= econ_kr.FIRST_EVAL_YEAR)]
+    out = pr[["iso3", "month", "post_soviet", "y"]].assign(logit=pr["logit__ref"], **{CHALLENGER: pr[f"logit__{CHALLENGER}"]})
+    return out.reset_index(drop=True)
 
 
 def _predict(p: pd.DataFrame, as_of: pd.Period, test: pd.DataFrame, name: str, h: int) -> tuple[np.ndarray, float] | None:
@@ -181,6 +247,13 @@ def main(argv: list[str]) -> int:
     hs = tuple(int(a) for a in argv if a in ("3", "6", "12")) or HORIZONS
     DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
     REPORTS.mkdir(parents=True, exist_ok=True)
+    if "live" in argv:
+        print(f"Претендент витрины `{CHALLENGER}` против боевого `ref`, вслепую, 12 мес…")
+        pr = run_live()
+        pr.assign(month=pr.month.astype(str)).to_parquet(DATA_PROCESSED / "econ_live_fx_predictions.parquet", index=False)
+        for n in ("logit", CHALLENGER):
+            print(f"  {n:14s} AUC мир {auc(pr.y, pr[n]):.3f}, постсоветские {auc(pr.y[pr.post_soviet], pr.loc[pr.post_soviet, n]):.3f}")
+        return 0
 
     print("Сборка панели FX + CSD…")
     p = load_full_panel()

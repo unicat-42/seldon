@@ -496,6 +496,48 @@ def test_available_from_fx_reserves():
         _same(live, run_live(bad_raw, name), ["logit", "peg_resfall", "peg_resfall_missing", "res_var_surge12", "res_ar1_12"])
 
 
+def test_future_blindness_fx_live_edge():
+    """Претендент витрины на живом крае (`econ_csd.live_edge`): у стран разный последний месяц
+    курса, REER и резервы «дотягиваются» последним известным значением. Прогноз не зависит ни
+    от чего, что случилось после `as_of` страны или ещё не опубликовано; дотягивание реально
+    срабатывает и не берёт значения старше допуска."""
+    from seldon.domains.currency import econ_csd
+
+    lag = temporal.monthly_lag("imf_reserves")
+    raw, annual, war = synth_monthly()
+    as_of = pd.Period("2010-06", freq="M")
+    raw = raw.copy()
+    raw.loc[(raw.iso3 == "CCC") & (raw.month > as_of - 2), KR_COLS] = np.nan       # курс кончается раньше
+    raw.loc[(raw.iso3 == "DDD") & (raw.month > as_of - 5), "reserves"] = np.nan    # резервы отстают: дотянутся
+    raw.loc[(raw.iso3 == "FFF") & (raw.month > as_of - 12), "reserves"] = np.nan   # резервы слишком старые: пропуск
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s = synth_fx_struct(KR_COUNTRIES, months, fx=raw)
+    s["reer"] = s["reer"][~((s["reer"].iso3 == "EEE") & (s["reer"].month > as_of - 2))]  # REER отстаёт: дотянется
+    own = pd.DataFrame({"iso3": [c for c in KR_COUNTRIES if c != "USA"]})
+    own["as_of"] = [as_of - 2 if c == "CCC" else as_of for c in own.iso3]
+
+    def run(raw, s, **kw):
+        fx = raw[["iso3", "month", "fx"]]
+        st = lambda filled: struct_features.build_struct(fx, s["eur"], s["reer"], s["ctot"], s["irr"], s["buffers"],  # noqa: E731
+                                                         irr_last_year=STRUCT_IRR_LAST, filled=filled)
+        p = econ_csd.light_panel(econ_kr.build_panel(raw, annual, war, target="deval15"), st(True))
+        return econ_csd.live_edge(p, st(False), own, as_of, **kw).sort_values("iso3").reset_index(drop=True)
+
+    clean = run(raw, s)
+    assert len(clean) == len(own) and clean.p.notna().all() and clean.p.nunique() > 1
+    flags = clean.set_index("iso3")
+    assert flags.loc["DDD", "peg_resfall_missing"] == 0 and flags.loc["FFF", "peg_resfall_missing"] == 1
+    assert flags.loc["EEE", "reer_missing"] == 0
+    assert run(raw, s, reer_max_stale=0, res_max_stale=0).set_index("iso3").loc["DDD", "peg_resfall_missing"] == 1
+
+    cut = raw.iso3.map(own.set_index("iso3").as_of).fillna(as_of)  # у каждой страны — свой последний месяц
+    bad_raw = _corrupt(raw, raw.month > cut, KR_COLS)
+    bad_raw = _corrupt(bad_raw, bad_raw.month > cut - lag, ["reserves"], seed=98)
+    bad_s = _unpublished_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of)
+    bad_s["fx"] = bad_raw[["iso3", "month", "fx"]]
+    _same(clean, run(bad_raw, bad_s), ["p", "C", "reer_missing", "peg_resfall_missing"])
+
+
 def test_available_from_war_monthly():
     """Месячные ПРИЗНАКИ войны (`*_rt`): список сторон ACD за текущий год ещё не вышел."""
     ged, states, parties, neighbors, span = synth_war()
@@ -1772,3 +1814,89 @@ def test_future_blindness_war_month_csd():
     pr1 = model_month.forecast_asof(m1, as_of, feats, h=3, C=0.1).sort_values("gw")
     assert pr0.p_onset.nunique() > 1
     _same(pr0, pr1, ["p", "p_onset", "p_cont"])
+
+
+# ---------------------------------------------------------------------------
+# 11. Хвосты ревью 4.3: покрытие архивов, годовые резервы, защита снимка
+# ---------------------------------------------------------------------------
+
+
+def test_archive_coverage_is_known_only_after_first_observation():
+    """Покрытие страны архивом MassMob / REIGN на строке месяца t опирается только на наблюдения
+    ≤ t − лаг: страна, впервые появившаяся в архиве в месяце X, до X + лаг помечена пропуском
+    (раньше «покрытой» считалась вся её история — по архиву целиком)."""
+    from seldon.domains.conflict import network_features
+
+    months = pd.period_range("2005-01", "2011-06", freq="M")
+    A, B = 1, 2
+    p = pd.DataFrame([
+        {"gw": g, "country": f"S{g}", "year": m.year, "month": m.month, "ym": m,
+         "o": (m.year - 1970) * 12 + m.month - 1, "deaths_state": 0, "state_war25": 0}
+        for g in (A, B) for m in months
+    ])
+    first_mm, first_rg = pd.Period("2010-03", freq="M"), pd.Period("2009-01", freq="M")
+    prot = lambda g, m: {"gw": g, "protest": 1, "startyear": m.year, "startmonth": m.month, "protesterviolence": 1,  # noqa: E731
+                         "participants": 20000, "stateresponse1": "killings"}
+    mm = pd.DataFrame([prot(A, pd.Period("2005-02", freq="M")), prot(A, pd.Period("2008-07", freq="M")), prot(B, first_mm)])
+    reign = pd.DataFrame([{"gw": g, "year": m.year, "month": m.month, "leader": f"L{g}", "pt_attempt": 0.0}
+                          for g in (A, B) for m in months if g == A or m >= first_rg])
+    ged = pd.DataFrame({"gw": pd.Series(dtype=int), "year": pd.Series(dtype=int), "month": pd.Series(dtype=int),
+                        "type_of_violence": pd.Series(dtype=int), "best": pd.Series(dtype=float), "deaths_state": pd.Series(dtype=float)})
+    vdem = pd.DataFrame([{"gw": g, "year": y, "v2x_polyarchy": 0.2, "v2x_libdem": 0.1, "v2x_clphy": 0.3, "v2cacamps": 1.0}
+                         for g in (A, B) for y in range(2002, 2012)])
+    epr = pd.DataFrame({"gw": pd.Series(dtype=int), "year": pd.Series(dtype=int), "gwgroupid": pd.Series(dtype=int),
+                        "size": pd.Series(dtype=float), "status": pd.Series(dtype=str), "rank": pd.Series(dtype=float)})
+    tek = pd.DataFrame({"tekid": pd.Series(dtype=int), "gw": pd.Series(dtype=int), "gwgroupid": pd.Series(dtype=int)})
+    cepii = pd.DataFrame({"a": pd.Series(dtype=int), "b": pd.Series(dtype=int), "comlang_off": pd.Series(dtype=int),
+                          "comlang_ethno": pd.Series(dtype=int), "colony": pd.Series(dtype=int), "smctry": pd.Series(dtype=int)})
+    neighbors = {(A, B, y) for y in range(2005, 2012)} | {(B, A, y) for y in range(2005, 2012)}
+
+    def run(mm, reign):
+        out = network_features.build_network_features(p, ged, vdem, epr, tek, cepii, neighbors, mm, reign, epr_last_year=2011,
+                                                      mm_last_month=months[-1], reign_last_month=months[-1])
+        return out.set_index(["gw", "ym"])
+
+    out = run(mm, reign)
+    lag_mm, lag_rg = temporal.monthly_lag("massmob_events"), temporal.monthly_lag("reign_monthly")
+    b = out.loc[B]
+    assert (b.loc[: first_mm + lag_mm - 1, "mm_net_missing"] == 1).all() and (b.loc[first_mm + lag_mm :, "mm_net_missing"] == 0).all()
+    assert (b.loc[: first_rg + lag_rg - 1, "reign_net_missing"] == 1).all() and (b.loc[first_rg + lag_rg :, "reign_net_missing"] == 0).all()
+    assert (out.loc[A].loc[pd.Period("2005-03", freq="M") :, "mm_net_missing"] == 0).all()
+    # слепота: строки до первого появления не зависят от того, появится ли страна в архиве позже
+    cols = ["mm_net_missing", "reign_net_missing", "own_prot3", "own_prot_rep12", "own_coup12"]
+    never = run(mm[mm.gw == A], reign[reign.gw == A]).loc[B]
+    before = b.index < min(first_mm, first_rg)
+    assert before.sum() > 12 and np.array_equal(b.loc[before, cols].to_numpy(), never.loc[before, cols].to_numpy())
+
+
+def test_available_from_fx_annual_live_reserves():
+    """Годовой живой набор (`select_showcase`): строка года T берёт резервы месяца
+    12 − лаг `imf_reserves` (октябрь) — последнего, что вышел к 1 января T+1. Резервы ноября
+    и декабря T на неё не влияют; контроль: порча самого октября видна."""
+    from seldon.evaluation import select_showcase
+
+    month = 12 - temporal.monthly_lag("imf_reserves")
+    assert select_showcase.ANNUAL_RES_MONTH == month == 10
+    raw, _, _ = synth_monthly()
+    il = raw[["iso3", "month", "reserves"]].rename(columns={"reserves": "value"})
+    T = 2010
+    late = (il.month.dt.year > T) | ((il.month.dt.year == T) & (il.month.dt.month > month))
+    clean = select_showcase.annual_reserves_g12(il)
+    row = lambda d: d[d.year == T].sort_values("iso3")  # noqa: E731
+    assert row(clean).reserves_g12.notna().all() and row(clean).reserves_g12.nunique() > 1
+    _same(row(clean), row(select_showcase.annual_reserves_g12(_corrupt(il, late, ["value"]))), ["reserves_g12"])
+    at_oct = (il.month.dt.year == T) & (il.month.dt.month == month)
+    assert _differs(row(clean), row(select_showcase.annual_reserves_g12(_corrupt(il, at_oct, ["value"]))), ["reserves_g12"])
+
+
+def test_vintage_refuses_to_overwrite(tmp_path):
+    """Снимок неизменяем: `vintage` не перезаписывает существующую непустую папку без `--force`
+    (проверяется на временной папке, настоящий `forecasts/` не трогается)."""
+    from seldon.publish import vintage
+
+    folder = tmp_path / "2026-11"
+    folder.mkdir()
+    (folder / "predictions.csv").write_text("sentinel\n")
+    assert vintage.freeze("2026-11", force=False, root=tmp_path) == 2
+    assert (folder / "predictions.csv").read_text() == "sentinel\n"
+    assert sorted(f.name for f in folder.iterdir()) == ["predictions.csv"]

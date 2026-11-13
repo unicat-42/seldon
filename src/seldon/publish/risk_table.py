@@ -20,6 +20,10 @@
        самые макроданные с лагом (для `_2026_27` это 2024 год);
      - месячная (`econ_kr`, целевая `deval15`, логрегрессия): признаки последнего месяца МВФ →
        скачок курса ≥ 15 % за месяц в ближайшие 12 месяцев (`fx_deval15_12m`). Рядом —
+       претендент `fx_deval15_12m_live` (набор `live_fx_swap` из `econ_csd`: те же целевая и
+       окно, плюс привязка, REER и привязка × падение резервов; боевая модель не заменена —
+       обе копятся в снимках для проспективного сравнения). Месячные резервы МВФ на строке
+       месяца m — за m − 2 (лаг публикации `imf_reserves`). Ещё рядом —
        индикаторы текущего стресса, это НЕ вероятности: `emp_z_max3`, `reserves_g12`,
        `deval12`, `infl12`, `signals_fired` и два индикатора уязвимости режима курса
        («сжатая пружина», чекпоинт 3.3; в модели витрины не входят): `peg_share12` — доля
@@ -56,7 +60,7 @@ from seldon.domains.banking import econ_boe_em
 from seldon.domains.conflict import model_hist
 from seldon.domains.conflict.features import FEATURES as HIST_FEATURES
 from seldon.domains.conflict.features_pitf import PITF_FEATURES
-from seldon.domains.currency import econ_kr, econ_long, kr_features, kr_targets
+from seldon.domains.currency import econ_csd, econ_kr, econ_long, kr_features, kr_targets
 from seldon.domains.currency.struct_features import load_struct
 from seldon.sources.gmd import load_gmd
 from seldon.sources.imf import load_dec_fx
@@ -108,7 +112,7 @@ def fx_risk() -> pd.DataFrame:
     """Месячная шкала. Вероятность — только одна: `fx_deval15_12m`, логрегрессия по целевой
     `deval15` (курс за месяц вырос ≥ 15 % в ближайшие 12 мес; вслепую AUC 0,65 сквозной,
     0,70 внутри года). Остальное — описательные индикаторы текущего стресса, НЕ вероятности:
-    `emp_z_max3` (давление за 3 мес, в σ), `reserves_g12`, `deval12`, `infl12`,
+    `emp_z_max3` (давление за 3 мес, в σ), `reserves_g12` (по месяц `as_of` − 2: лаг публикации), `deval12`, `infl12`,
     `signals_fired` (какие индикаторы KLR сейчас за порогом), `peg_share12`, `reer_peg` и
     `peg_resfall` (уязвимость режима курса, см. `regime_stress`). Модели `pressure` и `signals`
     по EMP-кризису в витрину не идут: сквозной AUC 0,51 — монетка (исследовательский режим
@@ -132,6 +136,12 @@ def fx_risk() -> pd.DataFrame:
             "emp_z_max3", "reserves_g12", "deval12", "infl12", "signals_fired"]
     out = test[cols].merge(regime_stress(test[["iso3", "as_of"]]), on="iso3", how="left")
     out["peg_resfall"] = peg_resfall(p, test[["iso3", "as_of"]], out.peg_share12)
+    # претендент рядом с боевой моделью (развилка B1): та же целевая и то же окно, набор `live_fx_swap`
+    live = econ_csd.live_edge(econ_csd.light_panel(p, load_struct(last_month=FX_LAST_MONTH)),
+                              load_struct(last_month=FX_LAST_MONTH, filled=False), test[["iso3", "as_of"]], as_of,
+                              reer_max_stale=REER_MAX_STALE, res_max_stale=RES_MAX_STALE).set_index("iso3")
+    out["fx_deval15_12m_live"] = out.iso3.map(live.p)
+    out["rank_fx_deval15_12m_live"] = out.fx_deval15_12m_live.rank(ascending=False, method="min")
     out["as_of"] = out.as_of.astype(str)
     return out
 
@@ -141,11 +151,10 @@ def peg_resfall(panel: pd.DataFrame, as_of: pd.DataFrame, peg: pd.Series) -> pd.
     решение Ангелины 13.11.2026): 0 — резервы не уходят, пусто — резервов нет в данных.
     Описательный индикатор, НЕ вероятность и не признак боевой модели.
 
-    Месячные резервы МВФ выходят на 1–2 месяца позже курса, поэтому берётся последнее
-    значение не старше `RES_MAX_STALE` месяцев от `as_of` страны — как у `reer_peg`
-    (на самый свежий месяц резервы есть лишь у четверти стран витрины, с допуском — у трёх
-    четвертей). Поэтому индикатор может быть посчитан не на тот месяц, что колонка
-    `reserves_g12` рядом: та всегда на `as_of`."""
+    Месячные резервы МВФ выходят позже курса: `reserves_g12` на строке месяца m — прирост по
+    месяц m − 2 (лаг `imf_reserves`). Если и его ещё нет, берётся последнее значение не старше
+    `RES_MAX_STALE` месяцев от `as_of` страны — как у `reer_peg`. Поэтому индикатор может быть
+    посчитан не на тот месяц, что колонка `reserves_g12` рядом."""
     h = panel[panel.reserves_g12.notna()].merge(as_of, on="iso3")
     h = h[(h.month <= h.as_of) & ((h.as_of - h.month).map(lambda d: d.n) <= RES_MAX_STALE)]
     res = h.sort_values("month").groupby("iso3").reserves_g12.last()

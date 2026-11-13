@@ -46,6 +46,7 @@ all:
 	$(RUN) lv
 	$(RUN) econ_kr crisis
 	$(RUN) econ_kr deval15
+	$(RUN) econ_csd live
 	$(RUN) econ_long deval25
 	$(RUN) econ_boe_em
 	$(RUN) risk_table

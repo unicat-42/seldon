@@ -51,6 +51,8 @@ COLUMNS = {
     "as_of": "последний месяц с курсом МВФ — точка отсчёта месячного прогноза",
     "fx_deval15_12m": "вероятность скачка курса ≥ 15 % за месяц в ближайшие 12 месяцев, логрегрессия",
     "rank_fx_deval15_12m": "место по этой вероятности",
+    "fx_deval15_12m_live": "то же событие и окно, модель-претендент live_fx_swap (боевая не заменена; копится для сравнения)",
+    "rank_fx_deval15_12m_live": "место по вероятности претендента",
     "bank_status": "банковский контур: ok | no_yield_curve | no_broad_money | no_bis_credit",
     "bank_jst_extree_full_2026_27": "вероятность системного банковского кризиса в 2026 или 2027 году (деревья BoE, набор full)",
     "rank_bank_jst_extree_full_2026_27": "место по этой вероятности",
@@ -76,6 +78,14 @@ MODELS = [
      "as_of": "колонка as_of (последний месяц с курсом МВФ по стране)", "features_year": None, "window": "12 месяцев после as_of",
      "scorecard": ("валютный кризис, месяц: deval15 за 12 мес", "мир", "logit"),
      "note": "На постсоветской подвыборке модель не лучше монетки — см. вторую строку метрик."},
+    {"column": "fx_deval15_12m_live", "role": "challenger", "contour": "валютный кризис, месяц",
+     "model": "econ_csd live_fx_swap: индикаторы econ_kr без линейного reserves_g12 + peg_share12, reer_gap, reer_peg, peg_resfall",
+     "target": "deval15 — как у fx_deval15_12m",
+     "as_of": "колонка as_of (последний месяц с курсом МВФ по стране)", "features_year": None, "window": "12 месяцев после as_of",
+     "scorecard": ("валютный кризис, месяц: deval15 за 12 мес, претендент", "мир", "live_fx_swap"),
+     "note": "Претендент, не замена: публикуется рядом с боевой моделью, чтобы сравнить их на будущих данных. "
+             "На живом крае REER и резервы дотянуты последним значением не старше 3 месяцев; в проверке вслепую такого "
+             "дотягивания нет. На постсоветской подвыборке хуже монетки — см. weak_spots."},
     {"column": "bank_jst_extree_full_2026_27", "contour": "банковский кризис", "model": "econ_boe_em jst_extree, набор full",
      "target": "как у Bluwstein и др.: строка T = 1, если T — один из двух лет перед системным банковским кризисом; "
                "признаки в строке T — макроданные за T−1, ставки за T",
@@ -86,7 +96,25 @@ MODELS = [
 EXTRA_SCORECARD = [  # строки, которые обязаны быть рядом: где модель слаба
     ("валютный кризис, год: deval25 в t+1…t+2", "постсоветские", "logit_long"),
     ("валютный кризис, месяц: deval15 за 12 мес", "постсоветские", "logit"),
+    ("валютный кризис, месяц: deval15 за 12 мес, претендент", "постсоветские", "live_fx_swap"),
     ("банковский кризис в t+1…t+2, набор nomoney", "страны BIS вне JST", "jst_extree"),
+]
+
+# Схема снимка (решение Ангелины 13.11.2026, развилка B4): колонки только добавляются,
+# существующие не переименовываются и не меняют смысл молча. Всё, что отличает снимок от
+# предыдущих, записывается сюда и попадает в `metadata.json` — чтобы сравнивать по месяцам.
+SCHEMA_VERSION = 2
+SCHEMA_CHANGES = [
+    {"since": "2026-12", "kind": "new_window", "columns": ["p_state_war25_2026", "p_state_war1000_2026"],
+     "previous": {"2026-11": ["p_state_war25_2025", "p_state_war1000_2025"]},
+     "note": "Не переименование: в снимке 2026-11 прогноз войны был на 2025 год (признаки 2024, UCDP 25.1), "
+             "с чекпоинта 3.1 — на 2026 (признаки 2025, UCDP 26.1). Значения между снимками не сравнимы напрямую."},
+    {"since": "2026-12", "kind": "method", "columns": ["fx_deval15_12m", "rank_fx_deval15_12m"],
+     "note": "Лаг публикации месячных резервов МВФ (imf_reserves = 2 месяца, коммит e3f065d): reserves_g12, "
+             "reserves_g1, m2_res_g12 на строке месяца m — по m−2; emp_z_max3 для двух свежих месяцев — только курсовая "
+             "часть; world_crisis3 кончается в m−2. Модель и целевая те же; вслепую сквозной AUC 0,640 → 0,643."},
+    {"since": "2026-12", "kind": "new_column", "columns": ["fx_deval15_12m_live", "rank_fx_deval15_12m_live"],
+     "note": "Модель-претендент рядом с боевой (см. models, role = challenger)."},
 ]
 
 RAW_FILES = {
@@ -169,12 +197,14 @@ def build(name: str) -> tuple[pd.DataFrame, dict]:
         pred[c] = pred[c].astype("Int64")  # места — целые; пусто, где прогноза нет
     models = []
     for m in MODELS:
-        e = {k: v for k, v in m.items() if k != "scorecard"}
+        e = {"role": "champion", **{k: v for k, v in m.items() if k != "scorecard"}}
         e["n_countries"] = int(pred[m["column"]].notna().sum())
         e["out_of_sample"] = _score_row(score, m["scorecard"])
         models.append(e)
     meta = {
         "vintage": name,
+        "schema_version": SCHEMA_VERSION,
+        "schema_changes": SCHEMA_CHANGES,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "what": "Замороженные прогнозы проекта «Селдон». Вероятности, а не «да/нет»; события редкие.",
         "origin": "годовые прогнозы — «на 1 января»: курс и история войн за год T, годовые макроданные за T−1 (лаги публикации, src/seldon/core/temporal.py)",
@@ -196,10 +226,14 @@ def build(name: str) -> tuple[pd.DataFrame, dict]:
 
 
 def main(argv: list[str]) -> int:
-    force = "--force" in argv
     names = [a for a in argv if not a.startswith("--")]
-    name = names[0] if names else datetime.now().strftime("%Y-%m")
-    folder = FORECASTS / name
+    return freeze(names[0] if names else datetime.now().strftime("%Y-%m"), force="--force" in argv)
+
+
+def freeze(name: str, force: bool = False, root: Path = FORECASTS) -> int:
+    """Заморозить снимок `name` в папке `root / name`. Существующую непустую папку не трогает
+    (код возврата 2), если не задан `force`."""
+    folder = root / name
     if folder.exists() and any(folder.iterdir()) and not force:
         print(f"винтаж {name} уже существует ({folder}) — он неизменяем. Для нового месяца укажи другое имя; "
               "перезапись только с `--force` и только пока винтаж не закоммичен.")
@@ -209,7 +243,7 @@ def main(argv: list[str]) -> int:
     pred.to_csv(folder / "predictions.csv", index=False, float_format=FLOAT_FORMAT)
     meta["predictions"]["sha256"] = sha256_of(folder / "predictions.csv")
     (folder / "metadata.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
-    print(f"винтаж {name}: {len(pred)} стран → {folder.relative_to(PROJECT_ROOT)}/predictions.csv, metadata.json")
+    print(f"винтаж {name}: {len(pred)} стран → {folder}/predictions.csv, metadata.json")
     for m in meta["models"]:
         o = m["out_of_sample"]
         print(f"  {m['column']:32s} стран {m['n_countries']:3d}; вслепую AUC {o['auc_pooled']:.3f} "

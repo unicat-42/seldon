@@ -24,7 +24,7 @@ from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.core.entities import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3
 from seldon.core.metrics import paired_comparison
 from seldon.core.panel import full_grid, pct_change
-from seldon.core.temporal import label_known
+from seldon.core.temporal import label_known, monthly_lag
 from seldon.domains.conflict import model_hist
 from seldon.domains.conflict.features import FEATURES as HIST_FEATURES
 from seldon.domains.conflict.features_pitf import PITF_FEATURES
@@ -116,19 +116,30 @@ def crawling_cases(preds: dict[int, pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# Годовой прогноз с признаков года T делается «на 1 января T+1»: к этой дате вышли резервы МВФ
+# по месяц 12 − лаг `imf_reserves` (октябрь) — его и берём на строку года T
+ANNUAL_RES_MONTH = 12 - monthly_lag("imf_reserves")
+
+
+def annual_reserves_g12(il: pd.DataFrame, res_month: int = ANNUAL_RES_MONTH) -> pd.DataFrame:
+    """Месячные резервы (iso3, month, value) → iso3, year, reserves_g12: прирост резервов за
+    12 месяцев по месяц `res_month` года. Чистая функция: строка года T зависит только от
+    резервов ≤ `res_month` этого года."""
+    il = il[il.value > 0].groupby(["iso3", "month"], as_index=False)["value"].first()
+    idx = full_grid(il.groupby("iso3").month.agg(["min", "max"]), names=["iso3", "month"], freq="M")
+    il = pd.DataFrame(index=idx).reset_index().merge(il, on=["iso3", "month"], how="left")
+    il["reserves_g12"] = il.groupby("iso3")["value"].transform(lambda s: pct_change(s, 12)).clip(-1, 3)
+    il = il[il.month.dt.month == res_month]
+    return il.assign(year=il.month.dt.year)[["iso3", "year", "reserves_g12"]].reset_index(drop=True)
+
+
 def _build_annual_live_panel() -> pd.DataFrame:
     st = struct_features.load_struct(last_month="2025-12")
     out = econ_struct.build_long_panel(st)
 
     il = read_imf("reserves")
-    il = il[(il.INDICATOR == "RXF11_REVS") & (il.UNIT == "USD") & (il.value > 0) & (il.month <= FX_LAST_MONTH)]
-    il = il.groupby(["iso3", "month"], as_index=False)["value"].first()
-    idx = full_grid(il.groupby("iso3").month.agg(["min", "max"]), names=["iso3", "month"], freq="M")
-    il = pd.DataFrame(index=idx).reset_index().merge(il, on=["iso3", "month"], how="left")
-    il["reserves_g12"] = il.groupby("iso3")["value"].transform(lambda s: pct_change(s, 12)).clip(-1, 3)
-    oct_il = il[il.month.dt.month == 10].assign(year=lambda d: d.month.dt.year)
-
-    out = out.merge(oct_il[["iso3", "year", "reserves_g12"]], on=["iso3", "year"], how="left")
+    il = il[(il.INDICATOR == "RXF11_REVS") & (il.UNIT == "USD") & (il.month <= FX_LAST_MONTH)]
+    out = out.merge(annual_reserves_g12(il[["iso3", "month", "value"]]), on=["iso3", "year"], how="left")
     out["peg_resfall_missing"] = out.reserves_g12.isna().astype(int)
     out["peg_resfall"] = out.peg_share12 * (-out.reserves_g12).clip(lower=0.0).fillna(0.0)
     return out
@@ -270,28 +281,10 @@ def _candidate_scorecard() -> pd.DataFrame:
 
 
 def _apply_stale_fill(p: pd.DataFrame, test: pd.DataFrame) -> pd.DataFrame:
-    """Обновить на строках `test` (`as_of` каждой страны) REER и резервы до последнего
-    непустого значения не старше REER_MAX_STALE / RES_MAX_STALE месяцев — как в `risk_table.py`."""
-    as_of_map = test[["iso3", "month"]].rename(columns={"month": "as_of"})
-    st_raw = struct_features.load_struct(last_month=FX_LAST_MONTH, filled=False).merge(as_of_map, on="iso3")
-    st_raw = st_raw[(st_raw.month <= st_raw.as_of) & ((st_raw.as_of - st_raw.month).map(lambda d: d.n) <= REER_MAX_STALE)]
-    reer_last = st_raw[st_raw.reer_gap.notna()].sort_values("month").groupby("iso3")[["reer_gap", "reer_peg"]].last()
-
-    res_h = p[p.reserves_g12.notna()].merge(as_of_map, on="iso3")
-    res_h = res_h[(res_h.month <= res_h.as_of) & ((res_h.as_of - res_h.month).map(lambda d: d.n) <= RES_MAX_STALE)]
-    res_last = res_h.sort_values("month").groupby("iso3").reserves_g12.last()
-
-    out = test.copy()
-    has_reer = out.iso3.isin(reer_last.index)
-    out.loc[has_reer, "reer_gap"] = out.loc[has_reer, "iso3"].map(reer_last["reer_gap"])
-    out.loc[has_reer, "reer_peg"] = out.loc[has_reer, "iso3"].map(reer_last["reer_peg"])
-    out.loc[has_reer, "reer_missing"] = 0
-
-    has_res = out.iso3.isin(res_last.index)
-    out.loc[has_res, "reserves_g12"] = out.loc[has_res, "iso3"].map(res_last)
-    out["peg_resfall"] = out.peg_share12.fillna(0.0) * (-out.reserves_g12).clip(lower=0.0).fillna(0.0)
-    out["peg_resfall_missing"] = out.reserves_g12.isna().astype(int)
-    return out
+    """REER и резервы на строках `test` — последним известным значением (`econ_csd.stale_fill`,
+    те же допуски, что в `risk_table.py`)."""
+    st_raw = struct_features.load_struct(last_month=FX_LAST_MONTH, filled=False)
+    return econ_csd.stale_fill(p, test, st_raw, REER_MAX_STALE, RES_MAX_STALE)
 
 
 def live_today_check(annual_live_panel: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:

@@ -80,8 +80,9 @@ def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None, reserves_la
     из `core/temporal.py`; 0 — «резервы известны сразу», только для контроля в тестах):
       - `reserves_g12`, `reserves_g1`, `m2_res_g12` стоят на строке m по значениям месяца m − лаг;
       - `emp_z_max3` — давление за 3 месяца: для месяцев, где резервы уже вышли (≤ m − лаг), —
-        полный EMP; для более свежих — только курсовая часть (`de_z`: изменение курса в своих
-        σ), по тому же правилу, что и «резервов нет — EMP только по курсу»;
+        полный EMP; для более свежих — только курсовая часть (изменение курса минус медиана EMP
+        страны, в σ её EMP на месяц m − лаг) — то же правило, что и «резервов нет — EMP только
+        по курсу» в `kr_targets`;
       - `world_crisis3` — доля стран с EMP-кризисом за 3 месяца, кончающихся в m − лаг
         (кризис по EMP нельзя засчитать, пока не вышли резервы).
     Колонки `emp`, `emp_z`, `crisis` остаются целевыми (что было на самом деле)."""
@@ -115,8 +116,12 @@ def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None, reserves_la
     world = live.groupby("month").agg(n=("crisis", "count"), k=("crisis", "sum"))
     share = (world.k / world.n).rolling(3, min_periods=1).sum()
     p["world_crisis3"] = (p.month - lag).map(share)
-    de_z = (p.de - p.med_e) / p.sd_e
-    recent = [(p.emp_z if j >= lag else de_z).groupby(p.iso3).shift(j) for j in range(3)]
+    # свежие месяцы (резервы ещё не вышли): EMP только по курсу, в той же шкале, что и полный EMP —
+    # медиана и σ EMP страны на последний месяц с вышедшими резервами (m − лаг), а не узкая σ курса:
+    # у бывших привязок σ курса спокойных месяцев почти нулевая, и любой сдвиг улетал в потолок
+    gi = p.groupby("iso3")
+    mean_known, sd_known = gi.emp_mean.shift(lag), gi.emp_sd.shift(lag)
+    recent = [gi.emp_z.shift(j) if j >= lag else (gi.de.shift(j) - mean_known) / sd_known for j in range(3)]
     p["emp_z_max3"] = pd.concat(recent, axis=1).max(axis=1).clip(-5, 50)
     if war is None:
         war = load_war()

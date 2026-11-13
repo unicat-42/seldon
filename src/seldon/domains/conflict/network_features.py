@@ -139,11 +139,12 @@ def _ucdp_impulses(panel_df: pd.DataFrame, events: pd.DataFrame, gws: list[int],
 
 
 def _massmob_impulses(massmob: pd.DataFrame, gws: list[int], ord_from: int, ord_to: int, lag: int,
-                      last_month: pd.Period) -> tuple[dict[str, np.ndarray], set[int]]:
-    """Подготовить месячные импульсы протестов Mass Mobilization (`≤ last_month`) с лагом `lag`."""
+                      last_month: pd.Period) -> tuple[dict[str, np.ndarray], dict[int, int]]:
+    """Подготовить месячные импульсы протестов Mass Mobilization (`≤ last_month`) с лагом `lag`.
+    Второе значение — первый месяц (ординал), когда страна появилась в архиве (для `_coverage`)."""
     if len(massmob) == 0:
         z = np.zeros((len(gws), ord_to - ord_from + 1), dtype=float)
-        return {"prot3": z, "prot_rep3": z, "prot_rep12": z}, set()
+        return {"prot3": z, "prot_rep3": z, "prot_rep12": z}, {}
     m = massmob.dropna(subset=["startyear", "startmonth", "gw"]).copy()
     m["o"] = month_ordinal(m.startyear.astype(int), m.startmonth.astype(int))
     m = m[(m.o >= MM_FIRST_MONTH.ordinal) & (m.o <= last_month.ordinal)].copy()
@@ -156,21 +157,22 @@ def _massmob_impulses(massmob: pd.DataFrame, gws: list[int], ord_from: int, ord_
     m["prot_n"] = 1.0
     m["prot_rep"] = (rep_resp | part.to_numpy() | viol.to_numpy()).astype(float)
     agg = m.groupby(["gw", "o"], as_index=False)[["prot_n", "prot_rep"]].sum()
-    covered = set(agg.gw.astype(int).unique())
+    first_seen = {int(g): int(o) for g, o in agg.groupby("gw").o.min().items()}
     mats, _ = _country_month_matrix(agg, gws, ord_from, ord_to, ["prot_n", "prot_rep"])
     return {
         "prot3": _lagged_roll_sum(mats["prot_n"], lag, 3),
         "prot_rep3": _lagged_roll_sum(mats["prot_rep"], lag, 3),
         "prot_rep12": _lagged_roll_sum(mats["prot_rep"], lag, 12),
-    }, covered
+    }, first_seen
 
 
 def _reign_impulses(reign: pd.DataFrame, gws: list[int], ord_from: int, ord_to: int, lag: int,
-                    last_month: pd.Period) -> tuple[dict[str, np.ndarray], set[int]]:
-    """Подготовить месячные шоки власти REIGN (перевороты / попытки и смены лидера) `≤ last_month`."""
+                    last_month: pd.Period) -> tuple[dict[str, np.ndarray], dict[int, int]]:
+    """Подготовить месячные шоки власти REIGN (перевороты / попытки и смены лидера) `≤ last_month`.
+    Второе значение — первый месяц (ординал), когда страна появилась в архиве (для `_coverage`)."""
     if len(reign) == 0:
         z = np.zeros((len(gws), ord_to - ord_from + 1), dtype=float)
-        return {"coup12": z}, set()
+        return {"coup12": z}, {}
     r = reign.dropna(subset=["gw", "year", "month"]).copy()
     r["o"] = month_ordinal(r.year.astype(int), r.month.astype(int))
     r = r[r.o <= last_month.ordinal].sort_values(["gw", "o"]).copy()
@@ -178,9 +180,19 @@ def _reign_impulses(reign: pd.DataFrame, gws: list[int], ord_from: int, ord_to: 
     prev_leader = r.groupby("gw").leader.shift(1)
     lchange = (prev_leader.notna() & (r.leader != prev_leader)).astype(float)
     r["shock"] = ((pd.to_numeric(r.pt_attempt, errors="coerce").fillna(0) > 0) | (lchange > 0)).astype(float)
-    covered = set(r.gw.astype(int).unique())
+    first_seen = {int(g): int(o) for g, o in r.groupby("gw").o.min().items()}
     mats, _ = _country_month_matrix(r[["gw", "o", "shock"]], gws, ord_from, ord_to, ["shock"])
-    return {"coup12": _lagged_roll_sum(mats["shock"], lag, 12)}, covered
+    return {"coup12": _lagged_roll_sum(mats["shock"], lag, 12)}, first_seen
+
+
+def _coverage(first_seen: dict[int, int], gws: list[int], ord_from: int, ord_to: int, lag: int) -> np.ndarray:
+    """Покрыта ли страна архивом на строке месяца t: 1, если её первое наблюдение в архиве —
+    не позже t − `lag`. Только прошлое: до первого появления страны о её покрытии знать нельзя
+    (раньше покрытие считалось по архиву целиком — страна с первым протестом в 2015 году была
+    «покрыта» уже в 1995-м)."""
+    first = np.array([first_seen.get(g, np.inf) for g in gws], dtype=float)
+    t = np.arange(ord_from, ord_to + 1, dtype=float) - lag
+    return (first[:, None] <= t[None, :]).astype(float)
 
 
 def _tek_matrices(epr_groups: pd.DataFrame, tek: pd.DataFrame, gws: list[int], years: list[int], epr_last_year: int) -> dict[int, np.ndarray]:
@@ -296,11 +308,10 @@ def build_network_features(
 
     # Импульсы на плотной решётке (N_gw × N_months)
     ucdp = _ucdp_impulses(p, events, gws, ord_from, ord_to, lags.event_lag)
-    mm, mm_covered = _massmob_impulses(massmob, gws, ord_from, ord_to, lags.mm_lag, mm_last_month)
-    rg, rg_covered = _reign_impulses(reign, gws, ord_from, ord_to, lags.reign_lag, reign_last_month)
-
-    mm_cov_vec = np.array([1 if g in mm_covered else 0 for g in gws], dtype=float)
-    rg_cov_vec = np.array([1 if g in rg_covered else 0 for g in gws], dtype=float)
+    mm, mm_first = _massmob_impulses(massmob, gws, ord_from, ord_to, lags.mm_lag, mm_last_month)
+    rg, rg_first = _reign_impulses(reign, gws, ord_from, ord_to, lags.reign_lag, reign_last_month)
+    mm_cov = _coverage(mm_first, gws, ord_from, ord_to, lags.mm_lag)
+    rg_cov = _coverage(rg_first, gws, ord_from, ord_to, lags.reign_lag)
 
     # Расписание доступных лет по месяцам
     ym_grid = pd.Series(pd.PeriodIndex.from_ordinals(np.arange(ord_from, ord_to + 1), freq="M"))
@@ -351,6 +362,7 @@ def build_network_features(
         res["vd_net_missing"][:, t] = vd_miss
 
         # POLIT_OWN / POLIT_NET с контролем конца хроник (инвариант 6)
+        mm_cov_vec, rg_cov_vec = mm_cov[:, t], rg_cov[:, t]
         mm_active = (ord_t - lags.mm_lag >= MM_FIRST_MONTH.ordinal) and (ord_t - lags.mm_lag <= mm_last_month.ordinal)
         if mm_active:
             res["mm_net_missing"][:, t] = 1.0 - mm_cov_vec

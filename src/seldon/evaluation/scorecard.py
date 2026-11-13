@@ -4,7 +4,7 @@
     uv run python -m seldon scorecard
 
 Ничего не обучает: читает сохранённые прогнозы вслепую (их пишут `model_hist`, `econ_long`,
-`econ_kr`, `econ_boe_em`) и считает по ним метрики из `core/metrics.py`:
+`econ_kr`, `econ_csd live`, `econ_boe_em`) и считает по ним метрики из `core/metrics.py`:
     auc              сквозной AUC по всем страна-периодам (0,5 — монетка, 1 — идеально);
     auc_lo, auc_hi   95 % интервал — блочный бутстрэп по годам (500 реплик);
     auc_within_year  среднее AUC по годам (умеет ли модель различать страны внутри года);
@@ -17,6 +17,7 @@
     война, начало (`state_war25`, страны без войны в году T)      `pitf` против `decay`
     валютный кризис, год (`deval25` в t+1…t+2)                     `logit_long`, `extree_long` против `persist`
     валютный кризис, месяц (`deval15` в ближайшие 12 мес)          `logit` против `pressure`
+    то же, претендент витрины (`econ_csd live`)                    `live_fx_swap` против боевого `logit`
     банковский кризис (t+1…t+2), страны вне JST                    `jst_extree` (наборы `full`, `nomoney`)
 
 Выход: reports/scorecard.csv
@@ -61,6 +62,11 @@ ENTRIES = (
           "y", ("logit", "pressure"), ref="pressure"),
     Entry("валютный кризис, месяц: deval15 за 12 мес", "постсоветские", "econ_kr_predictions_deval15.parquet",
           "y", ("logit", "pressure"), ref="pressure", query="post_soviet"),
+    # претендент витрины рядом с боевой моделью (развилка B1): те же строки и целевая, база — боевой `logit`
+    Entry("валютный кризис, месяц: deval15 за 12 мес, претендент", "мир", "econ_live_fx_predictions.parquet",
+          "y", ("live_fx_swap", "logit"), ref="logit"),
+    Entry("валютный кризис, месяц: deval15 за 12 мес, претендент", "постсоветские", "econ_live_fx_predictions.parquet",
+          "y", ("live_fx_swap", "logit"), ref="logit", query="post_soviet"),
     Entry("банковский кризис в t+1…t+2, набор full", "страны BIS вне JST", "boe_em_predictions.parquet",
           "crisis", ("jst_extree",), query="feature_set == 'full' and not jst"),
     Entry("банковский кризис в t+1…t+2, набор nomoney", "страны BIS вне JST", "boe_em_predictions.parquet",
