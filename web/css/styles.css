@@ -32,7 +32,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 a { color: inherit; text-decoration-color: var(--rule-2); text-underline-offset: 3px; text-decoration-thickness: 1px; }
-a:hover { text-decoration-color: var(--ink); }
+@media (hover: hover) { a:hover { text-decoration-color: var(--ink); } }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
 h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.005em; margin: 0; text-wrap: balance; }
 h1 { font-size: 38px; line-height: 1.12; }
@@ -62,7 +62,7 @@ p.num { white-space: normal; }
 .brand { font: 600 21px/1 var(--serif); text-decoration: none; letter-spacing: 0.01em; }
 .nav { display: flex; gap: 26px; flex: 1; }
 .nav a { text-decoration: none; color: var(--ink-2); padding: 18px 0 16px; border-bottom: 2px solid transparent; }
-.nav a:hover { color: var(--ink); }
+@media (hover: hover) { .nav a:hover { color: var(--ink); } }
 .nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
 .search { position: relative; width: 230px; }
 .search input { width: 100%; height: 34px; padding: 0 10px; background: transparent; border: 1px solid var(--edge); border-radius: 3px; }
@@ -70,7 +70,7 @@ p.num { white-space: normal; }
 .search-list { position: absolute; right: 0; top: 38px; width: 300px; margin: 0; padding: 4px 0; list-style: none; background: var(--paper);
   border: 1px solid var(--rule-2); box-shadow: 0 8px 24px rgba(37, 35, 31, 0.12); max-height: 340px; overflow: auto; }
 .search-list li a { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; text-decoration: none; }
-.search-list li a:hover, .search-list li.on a, .search-list li[aria-selected="true"] a { background: var(--paper-2); }
+@media (hover: hover) { .search-list li a:hover { background: var(--paper-2); } } .search-list li.on a, .search-list li[aria-selected="true"] a { background: var(--paper-2); }
 .search-list .empty { padding: 8px 12px; color: var(--ink-3); }
 .site-foot { border-top: 1px solid var(--rule); margin-top: 72px; color: var(--ink-3); font-size: 13px; }
 .foot-row { display: flex; justify-content: space-between; padding-top: 18px; padding-bottom: 28px; gap: 24px; flex-wrap: wrap; }
@@ -82,9 +82,9 @@ p.num { white-space: normal; }
 .section-head p { margin-top: 8px; color: var(--ink-2); max-width: 70ch; }
 .btn { display: inline-flex; align-items: center; height: 38px; padding: 0 16px; background: var(--ink); color: var(--paper); text-decoration: none;
   border: 1px solid var(--ink); border-radius: 3px; font-weight: 500; cursor: pointer; }
-.btn:hover { background: #3a372f; }
+@media (hover: hover) { .btn:hover { background: #3a372f; } }
 .btn.ghost { background: transparent; color: var(--ink); border-color: var(--edge); }
-.btn.ghost:hover { border-color: var(--ink); background: transparent; }
+@media (hover: hover) { .btn.ghost:hover { border-color: var(--ink); background: transparent; } }
 .btn.sm { height: 30px; padding: 0 11px; font-size: 13px; }
 .links { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
 .ctx { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
@@ -101,7 +101,7 @@ p.num { white-space: normal; }
 .seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 3px; overflow: hidden; flex-wrap: wrap; }
 .seg button { height: 32px; padding: 0 13px; background: transparent; border: 0; border-right: 1px solid var(--rule-2); cursor: pointer; color: var(--ink-2); }
 .seg button:last-child { border-right: 0; }
-.seg button:hover { color: var(--ink); }
+@media (hover: hover) { .seg button:hover { color: var(--ink); } }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .seg button:disabled { color: var(--ink-3); cursor: not-allowed; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(133,127,115,.14) 6px 7px); }
 .ctl { display: flex; align-items: center; gap: 10px; }
@@ -143,12 +143,12 @@ select.field { min-width: 0; padding-right: 26px; }
 .tbl td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: middle; }
 .tbl tr.row { cursor: pointer; }
 .tbl tr.row:focus-visible { outline-offset: -2px; }
-.tbl tr.row:hover td { background: rgba(231, 223, 205, .45); }
+@media (hover: hover) { .tbl tr.row:hover td { background: rgba(231, 223, 205, .45); } }
 .tbl tr.sel td { background: var(--paper-2); }
 .tbl tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--dom, var(--ink)); }
 .tbl td.name { padding-left: 10px; white-space: nowrap; }
 .tbl td.name a { text-decoration: none; font-weight: 500; display: inline-block; padding: 4px 0; }
-.tbl td.name a:hover { text-decoration: underline; }
+@media (hover: hover) { .tbl td.name a:hover { text-decoration: underline; } }
 .tbl td.rk { width: 44px; color: var(--ink-3); text-align: right; padding-right: 12px; }
 .tbl tr.grp td { padding: 22px 0 8px 10px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); border-bottom: 1px solid var(--rule-2); }
 .tbl th.active { color: var(--ink); box-shadow: inset 0 -2px 0 var(--dom, var(--ink)); }
@@ -168,7 +168,7 @@ select.field { min-width: 0; padding-right: 26px; }
 .ribbon svg { display: block; width: 100%; height: auto; }
 .rb-tick { stroke: var(--mark); stroke-width: 1.2; }
 .rb-hit { fill: transparent; cursor: pointer; }
-.rb-hit:hover + .rb-hl, .rb-hl.on { opacity: 1; }
+@media (hover: hover) { .rb-hit:hover + .rb-hl { opacity: 1; } } .rb-hl.on { opacity: 1; }
 .rb-ev { fill: var(--event); }
 .rb-sel { fill: none; stroke: var(--dom, var(--war)); stroke-width: 2; }
 .rb-year { font: 12px var(--sans); fill: var(--ink-3); }
@@ -178,7 +178,7 @@ select.field { min-width: 0; padding-right: 26px; }
 .card h3 { margin-bottom: 2px; }
 .cases { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
 .chip { display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border: 1px solid var(--edge); border-radius: 15px; background: transparent; cursor: pointer; font-size: 13px; text-decoration: none; color: var(--ink); }
-.chip:hover { border-color: var(--ink); }
+@media (hover: hover) { .chip:hover { border-color: var(--ink); } }
 .chip[aria-pressed="true"], .chip[aria-current="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .chip.off { color: var(--ink-3); background: repeating-linear-gradient(135deg, transparent 0 7px, rgba(87,82,74,.16) 7px 8px); }
 .chip.na { color: var(--ink-3); background: var(--paper-3); border-color: transparent; }
@@ -192,7 +192,7 @@ select.field { min-width: 0; padding-right: 26px; }
 .now-card h3 { font-size: 18px; } .now-card .period { font: 400 13px var(--sans); color: var(--ink-2); white-space: nowrap; }
 .now-card ol.top { list-style: none; margin: 0; padding: 0; }
 .now-card ol.top li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
-.now-card ol.top a { text-decoration: none; font-weight: 500; } .now-card ol.top a:hover { text-decoration: underline; }
+.now-card ol.top a { text-decoration: none; font-weight: 500; } @media (hover: hover) { .now-card ol.top a:hover { text-decoration: underline; } }
 .now-card ol.top .num { font-weight: 500; }
 .now-card .ps { margin-top: 2px; } .now-card .ps ol.top li { border-bottom: 0; padding-bottom: 0; }
 .now-card .links { margin-top: auto; padding-top: 6px; gap: 10px 14px; font-size: 13px; }
@@ -211,7 +211,7 @@ select.field { min-width: 0; padding-right: 26px; }
 
 /* ---------- досье ---------- */
 .anchors { display: flex; gap: 22px; padding: 12px 0; border-bottom: 1px solid var(--rule); position: sticky; top: 56px; background: var(--paper); z-index: 5; font-size: 14px; }
-.anchors a { text-decoration: none; color: var(--ink-2); } .anchors a:hover { color: var(--ink); }
+.anchors a { text-decoration: none; color: var(--ink-2); } @media (hover: hover) { .anchors a:hover { color: var(--ink); } }
 .cov3 { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--rule-2); }
 .cov3 > div { padding: 14px 16px; border-right: 1px solid var(--rule-2); border-top: 3px solid var(--dom); }
 .cov3 > div:last-child { border-right: 0; }
@@ -251,7 +251,7 @@ details > summary { cursor: pointer; color: var(--ink-2); }
 .fact { font-size: 16px; line-height: 1.45; margin: 10px 0 6px; max-width: 60ch; }
 details.more { margin-top: 6px; }
 details.more > summary { font-size: 13px; padding: 4px 0; text-decoration: underline; text-decoration-color: var(--rule-2); text-underline-offset: 3px; }
-details.more > summary:hover { color: var(--ink); text-decoration-color: var(--ink); }
+@media (hover: hover) { details.more > summary:hover { color: var(--ink); text-decoration-color: var(--ink); } }
 details.more[open] > summary { margin-bottom: 6px; }
 .shift .eyebrow { margin-bottom: 2px; } .shift ul.plain { color: var(--ink); } .shift li { margin: 6px 0; }
 ul.plain, ol.plain { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); }
@@ -320,5 +320,15 @@ tr.exp { display: none; }
   .legend { gap: 8px 16px; }
   .foot-row { flex-direction: column; gap: 6px; }
 }
+/* ---------- отклик на наведение и нажатие ----------
+   Наведение — только там, где есть настоящий курсор (на телефоне оно «залипает» после тапа).
+   Цвет меняется за 150 мс; кнопка при нажатии чуть сжимается, отпускается быстро. */
+a, .nav a, .btn, .seg button, .chip, .field, .search input, details.more > summary {
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, text-decoration-color 150ms ease;
+}
+.btn, .chip { transition-property: color, background-color, border-color, transform; transition-duration: 150ms, 150ms, 150ms, 140ms; transition-timing-function: ease, ease, ease, cubic-bezier(0.23, 1, 0.32, 1); }
+.btn:active, .chip:active { transform: scale(0.97); }
+.seg button:active:not(:disabled):not([aria-pressed="true"]) { background: var(--paper-3); }
+@media (prefers-reduced-motion: reduce) { .btn:active, .chip:active { transform: none; } }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 @media print { .site-head, .site-foot, .anchors, .btn { display: none !important; } body { background: #fff; } }
