@@ -24,7 +24,11 @@
     struct_level      struct + накопленный шок;
     brk / struct_brk / all_brk   + разрыв привязки (`break_features.py`): привязка × потеря
                 сырьевого дохода × резервы; `all_brk` = struct + заражение + разрыв;
-    struct_brk_rt     то же, сырьевой индекс с лагом 1 месяц вместо 6 — только чувствительность.
+    struct_brk_rt     то же, сырьевой индекс с лагом 1 месяц вместо 6 — только чувствительность;
+    res_drop / res_both / res_swap   нужен ли линейный член `reserves_g12`, когда есть
+                произведение с привязкой: убрать линейный; добавить произведение к линейному;
+                заменить одно другим. `all_brk_swap` — то же для полного набора.
+`DROP` — какие боевые индикаторы KLR набор выбрасывает (пустой список у всех остальных).
 Для горизонта h метка — `deval15` в месяцы m+1…m+h; правило «тишины» то же, что у боевой
 модели. Обучение — метки, известные к концу декабря T−1 (m + h ≤ декабрь T−1), тест — все
 месяцы года T, T = 1996…2025; C — по времени внутри обучения (`econ_struct.choose_C_kr`).
@@ -80,8 +84,22 @@ SETS: dict[str, list[str]] = {
     "struct_brk": [*S_CONT, *S_FLAGS, *bf.BRK, *bf.BRK_FLAGS],
     "all_brk": [*S_CONT, *S_FLAGS, *cf.CONT, *cf.FLAGS, *bf.BRK, *bf.BRK_FLAGS],
     "struct_brk_rt": [*S_CONT, *S_FLAGS, *bf.BRK_RT, *bf.BRK_RT_FLAGS],  # чувствительность: сырьё без задержки набора
+    # нужен ли линейный `reserves_g12`, если есть `peg_resfall` (привязка × сжигание резервов)
+    "res_drop": [],
+    "res_both": ["peg_resfall"],
+    "res_swap": ["peg_resfall"],
+    "all_brk_swap": [*S_CONT, *S_FLAGS, *cf.CONT, *cf.FLAGS, *bf.BRK, *bf.BRK_FLAGS],
 }
+# что набор ВЫБРАСЫВАЕТ из боевых индикаторов KLR (проверка: нужен ли линейный член)
+DROP: dict[str, tuple[str, ...]] = {"res_drop": ("reserves_g12",), "res_swap": ("reserves_g12",),
+                                    "all_brk_swap": ("reserves_g12",)}
 NAMES = list(SETS)
+
+
+def features(name: str) -> list[str]:
+    """Признаки набора: боевые индикаторы KLR минус `DROP[name]`, плюс добавки `SETS[name]`."""
+    drop = DROP.get(name, ())
+    return [*[i for i in INDICATORS if i not in drop], *SETS[name]]
 
 
 def gdp_per_capita(gmd: pd.DataFrame) -> pd.DataFrame:
@@ -124,7 +142,7 @@ def with_horizon(p: pd.DataFrame, h: int) -> pd.DataFrame:
 
 
 def _predict(p: pd.DataFrame, as_of: pd.Period, test: pd.DataFrame, name: str, h: int) -> tuple[np.ndarray, float] | None:
-    feats = [*INDICATORS, *SETS[name]]
+    feats = features(name)
     known = p[label_known(p.month, as_of, h) & p.evaluable]
     if known.y.sum() < KR_MIN_POS:
         return None
@@ -162,13 +180,14 @@ def run(p: pd.DataFrame, h: int, names: list[str] = NAMES) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def coefficients(p: pd.DataFrame, h: int, names=("full", "struct", "struct_gdp", "level", "struct_level", "brk", "struct_brk", "struct_brk_rt")) -> pd.DataFrame:
+def coefficients(p: pd.DataFrame, h: int, names=("full", "struct", "struct_gdp", "level", "struct_level", "brk", "struct_brk", "struct_brk_rt",
+                        "res_both", "res_swap", "all_brk_swap")) -> pd.DataFrame:
     """Стандартизованные коэффициенты в последней точке обучения."""
     as_of = pd.Period(f"{econ_kr.LAST_EVAL_YEAR - 1}-12", freq="M")
     known = p[label_known(p.month, as_of, h) & p.evaluable]
     out = []
     for name in names:
-        feats = [*INDICATORS, *SETS[name]]
+        feats = features(name)
         m, *_ = _kr_fit(known, feats, choose_C_kr(known, feats, h=h))
         out.append(pd.Series(m[-1].coef_[0], index=feats, name=f"{name}_h{h}"))
     return pd.concat(out, axis=1)
@@ -248,7 +267,7 @@ def main(argv: list[str]) -> int:
         pd.set_option("display.width", 250)
         print("\nКто попадает под gg_missing (h = 12):")
         print(gg.round(3).to_string(index=False))
-        new = c[c.feature.isin([*cf.COLUMNS, *S_CONT, *S_FLAGS, *GDP, "gg_log_nan", *bf.BRK, *bf.BRK_RT, *bf.BRK_FLAGS, *bf.BRK_RT_FLAGS])]
+        new = c[c.feature.isin([*cf.COLUMNS, *S_CONT, *S_FLAGS, *GDP, "gg_log_nan", *bf.BRK, *bf.BRK_RT, *bf.BRK_FLAGS, *bf.BRK_RT_FLAGS, "reserves_g12"])]
         print("\nКоэффициенты (стандартизованные, последняя точка обучения):")
         print(new.round(3).to_string(index=False))
         print("\nAUC признаков в одиночку:")

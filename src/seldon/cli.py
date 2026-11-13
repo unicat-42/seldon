@@ -24,6 +24,9 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "features_polit": ("seldon.domains.conflict.features_polit", "+ лидеры, перевороты, протесты"),
     "dyads": ("seldon.domains.conflict.dyads", "диадная панель A ← B × год: целевая и признаки пар (нужен features_pitf)"),
     "model_dyad": ("seldon.domains.conflict.model_dyad", "диадная модель вслепую + два канала риска поверх pitf (нужны dyads, model_hist pitf)"),
+    "month_features": ("seldon.domains.conflict.month_features", "месячная панель войн с Candidate Events и предвестниками «дым до огня» (нужен features_pitf)"),
+    "model_month": ("seldon.domains.conflict.model_month", "месячная модель войн на 3 / 6 / 12 мес: model_month [war|cf] (нужен month_features)"),
+    "dyads_live": ("seldon.domains.conflict.model_dyad_live", "диады: живые стычки вместо MID, раздельные модели соседей и держав, калибровка p_ext (нужны dyads, model_dyad)"),
     "baseline": ("seldon.domains.conflict.baseline", "базовые модели войн: baseline [целевая]"),
     "model_hist": ("seldon.domains.conflict.model_hist", "модель войн: model_hist [набор] [logit|gbm] [целевая]"),
     # domains.currency
@@ -38,6 +41,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "compare_war": ("seldon.evaluation.compare_war", "парное сравнение наборов модели войн с эталоном: compare_war [эталон] [набор ...]"),
     "compare_fx": ("seldon.evaluation.compare_fx", "парное сравнение структурных наборов с валютными эталонами + кейсы (нужен econ_struct)"),
     "compare_contagion": ("seldon.evaluation.compare_contagion", "парное сравнение наборов заражения с боевой моделью и struct + контрольные кейсы (нужен econ_contagion)"),
+    "compare_month": ("seldon.evaluation.compare_month", "месячная модель войн: срезы, контрольные кейсы, сравнение с conflictforecast (нужен model_month)"),
     "scorecard": ("seldon.evaluation.scorecard", "сводная таблица качества основных моделей с интервалами"),
     "risk_table": ("seldon.publish.risk_table", "таблица риска 2026–27 → reports/risk_2025_26.csv"),
     "vintage": ("seldon.publish.vintage", "заморозить прогнозы: vintage [ГГГГ-ММ] → forecasts/ГГГГ-ММ/"),

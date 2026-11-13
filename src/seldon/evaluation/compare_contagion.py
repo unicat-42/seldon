@@ -39,7 +39,7 @@ CASES = [("RUS", "1998-08"), ("KAZ", "2014-02"), ("BLR", "2011-05"), ("RUS", "20
          ("EGY", "2022-10"), ("NGA", "2016-06"), ("NGA", "2023-06")]
 CASE_NAMES = {**ISO3_TO_SHORT, "TUR": "Турция", "EGY": "Египет", "NGA": "Нигерия"}
 CASE_SETS = ["ref", "struct", "clean", "contagion", "full", "level", "contagion_level", "struct_level",
-             "brk", "struct_brk", "all_brk", "struct_brk_rt"]
+             "brk", "struct_brk", "all_brk", "struct_brk_rt", "res_both", "res_swap", "all_brk_swap"]
 
 
 def load(h: int) -> pd.DataFrame:
@@ -96,7 +96,7 @@ def main(argv: list[str]) -> int:
     out = []
     for h in HORIZONS:
         pred = load(h)
-        for ref in ("ref", "base", "struct"):
+        for ref in ("ref", "base", "struct", "res_both", "all_brk"):
             out.append(compare(pred, h, ref))
     t = pd.concat(out, ignore_index=True).rename(columns={"algo": "vs"})
     t.to_csv(REPORTS / "fx_contagion_comparison.csv", index=False, float_format="%.4f")

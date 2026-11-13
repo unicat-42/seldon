@@ -1114,7 +1114,7 @@ def test_future_blindness_fx_contagion_monthly(h):
            _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]),
            _future_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of),
            _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of, gdp_from=as_of.year - 1))
-    for name in ("full", "par", "struct_level", "all_brk", "struct_brk_rt"):
+    for name in ("full", "par", "struct_level", "all_brk", "struct_brk_rt", "res_swap"):
         clean = run(raw, annual, war, s, c, name)
         assert clean.logit.notna().all() and clean.logit.nunique() > 1
         _same(clean, run(*bad, name), ["logit", "C", *contagion_features.COLUMNS, "gdp_pc_log", *break_features.BRK, *break_features.BRK_RT])
@@ -1150,3 +1150,15 @@ def test_available_from_break_features():
         assert all(row(clean_t)[c].nunique() > 1 for c in break_features.CTOT_COLS)
         _same(row(clean_t), row(break_features.ctot_table(bad, lag)), break_features.CTOT_COLS)
         assert _differs(row(break_features.ctot_table(ctot, 0)), row(break_features.ctot_table(bad, 0)), break_features.CTOT_COLS)
+
+
+def test_feature_sets_drop_and_add():
+    """`DROP` действительно выбрасывает боевой индикатор, а `SETS` добавляет свои: наборы
+    проверки «нужен ли линейный член резервов» отличаются ровно этим."""
+    ref = econ_contagion.features("ref")
+    assert ref == list(kr_features.INDICATORS) and "reserves_g12" in ref
+    assert econ_contagion.features("res_drop") == [i for i in ref if i != "reserves_g12"]
+    assert econ_contagion.features("res_both") == [*ref, "peg_resfall"]
+    assert econ_contagion.features("res_swap") == [*[i for i in ref if i != "reserves_g12"], "peg_resfall"]
+    swap, both = econ_contagion.features("all_brk_swap"), econ_contagion.features("all_brk")
+    assert set(both) - set(swap) == {"reserves_g12"} and len(swap) == len(both) - 1

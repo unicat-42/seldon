@@ -50,7 +50,7 @@ from seldon.sources.gmd import GMD_VERSION
 from seldon.sources.irr import IRR_FILE, IRR_URL
 from seldon.sources.parallel import REINHART_FILE, REINHART_SHA256, REINHART_URL
 from seldon.sources.epr import EPR_VERSION
-from seldon.sources.ucdp import UCDP_VERSION
+from seldon.sources.ucdp import CANDIDATE_LIVE, CANDIDATE_PREV, UCDP_VERSION
 from seldon.sources.unga import UNGA_DATAVERSE_ID, UNGA_FILE
 
 # ---------------------------------------------------------------------------
@@ -71,6 +71,14 @@ SOURCES: dict[str, dict] = {
             f"ucdp-brd-conf-{UCDP_V}-csv.zip": f"https://ucdp.uu.se/downloads/brd/ucdp-brd-conf-{UCDP_V}-csv.zip",
         },
         "unzip": True,
+    },
+    # UCDP Candidate Events — предварительные события: месячный файл за месяц m выходит
+    # 20-го числа m+1, раз в квартал — накопленный файл с начала года. Берём накопленные:
+    # текущий год (продолжение GED после декабря 2025) и прошлый (сверка с выверенным GED).
+    # При выходе следующего квартального файла поменять имя в `sources/ucdp.py`.
+    "ucdp_candidate": {
+        "files": {n: f"https://ucdp.uu.se/downloads/candidateged/{n}" for n in (CANDIDATE_LIVE, CANDIDATE_PREV)},
+        "unzip": False,
     },
     # PITF — Political Instability Task Force. Replication data к статье
     # Goldstone et al. (2010) "A Global Model for Forecasting Political Instability",
@@ -623,6 +631,7 @@ FETCHERS = {
     "bruegel": lambda: fetch_static("bruegel"),
     "parallel": lambda: fetch_static("parallel"),
     "ucdp": lambda: fetch_static("ucdp"),
+    "ucdp_candidate": lambda: fetch_static("ucdp_candidate"),
     "pitf": lambda: fetch_static("pitf"),
     "conflictforecast": fetch_conflictforecast,
     "gw": lambda: fetch_static("gw"),
@@ -640,7 +649,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel"]
+DEFAULT_SOURCES = ["ucdp", "ucdp_candidate", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel"]
 
 
 def main(argv: list[str]) -> int:
