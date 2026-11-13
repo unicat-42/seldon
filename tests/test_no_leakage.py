@@ -38,7 +38,8 @@ import pytest
 
 from seldon.core import entities, temporal
 from seldon.domains.banking import econ_boe, econ_boe_em
-from seldon.domains.conflict import dyads, features, features_epr, features_pitf, features_vdem, model_dyad, model_hist, panel
+from seldon.domains.conflict import (dyads, features, features_epr, features_pitf, features_vdem, live_pairs, model_dyad, model_dyad_live,
+                                     model_hist, model_month, month_features, panel)
 from seldon.sources import epr as epr_source
 from seldon.sources import vdem as vdem_source
 from seldon.domains.currency import (break_features, contagion_features, econ_contagion, econ_kr, econ_long, econ_struct, kr_features, kr_targets,
@@ -400,6 +401,8 @@ def test_publication_lags():
     assert t.publication_lag("cow_mid", "jan1") == 3 == dyads.MID_LAG and dyads.CAP_LAG == 1
     months = pd.Series(pd.period_range("2010-01", "2010-06", freq="M"))
     assert t.last_available_year_in_month("wdi_annual", months).tolist() == [2008, 2008, 2008, 2009, 2009, 2009]
+    # события UCDP (чекпоинт 4.2): файл Candidate за месяц m выходит 20-го числа m+1
+    assert t.monthly_lag("ucdp_events") == 1
 
 
 def test_available_from_fx_annual():
@@ -1162,3 +1165,197 @@ def test_feature_sets_drop_and_add():
     assert econ_contagion.features("res_swap") == [*[i for i in ref if i != "reserves_g12"], "peg_resfall"]
     swap, both = econ_contagion.features("all_brk_swap"), econ_contagion.features("all_brk")
     assert set(both) - set(swap) == {"reserves_g12"} and len(swap) == len(both) - 1
+
+
+# ---------------------------------------------------------------------------
+# 8. Месячная модель войн, живые стычки, доводка диад (чекпоинт 4.2)
+# ---------------------------------------------------------------------------
+
+MONTH_LAST = pd.Period("2013-12", freq="M")
+
+
+def synth_month(seed: int = 41) -> dict:
+    """Синтетика месячного контура войн: события с кодами государств-сторон (`gwnoa` / `gwnob`:
+    часть — «правительство против правительства», часть — чужая армия на территории), годовые
+    структурные признаки и население."""
+    s = synth_dyad()
+    rng = np.random.default_rng(seed)
+    ged = s["ged"].copy()
+    n, st = len(ged), (s["ged"].type_of_violence == 1).to_numpy()
+    u = rng.random(n)
+    other = np.where(ged.gw < 20, ged.gw + 1, ged.gw - 1)
+    ged["gwnoa"] = np.where(st, np.where(u < 0.15, other, ged.gw).astype(str), None)  # 15 % — вторжение соседа
+    ged["gwnob"] = np.where(st & (u > 0.7), other.astype(float), np.nan)  # 30 % — прямое столкновение
+    y0, y1 = s["span"]
+    cy = pd.DataFrame([(g, y) for g in WAR_STATES for y in range(y0 - 3, y1 + 1)], columns=["gw", "year"])
+    struct = cy.copy()
+    for c in features_pitf.PITF_FEATURES:
+        struct[c] = rng.normal(0, 1, len(cy))
+    pop = cy.assign(population=np.exp(rng.normal(15, 1, len(cy))))
+    return {**s, "ged": ged, "struct": struct, "pop": pop}
+
+
+def _month_features(s: dict, lag: int = 1, **over) -> pd.DataFrame:
+    s = {**s, **over}
+    p = month_features.build_panel(s["ged"], s["states"], s["parties"], s["neighbors"], s["span"][0], MONTH_LAST)
+    live = live_pairs.country_month(live_pairs.pair_events(s["ged"], dyads.opponents(s["acd"]), acd_lag=panel.ACD_LAG))
+    return month_features.build_features(p, s["neighbors"], s["struct"], live, s["pop"], lag=lag)
+
+
+def _bad_events(ged: pd.DataFrame, mask: pd.Series) -> pd.DataFrame:
+    bad = _corrupt(ged, mask, ["best", "deaths_state"])
+    bad[["best", "deaths_state"]] = bad[["best", "deaths_state"]].fillna(5000).round()
+    return bad
+
+
+def _ym(ged: pd.DataFrame) -> pd.Series:
+    return pd.Series(pd.PeriodIndex.from_ordinals(live_pairs.month_ordinal(ged.year, ged.month), freq="M"), index=ged.index)
+
+
+MONTH_COLS = [*month_features.ALL_FEATURES, "quiet_known", "ac_quiet_known"]
+
+
+def test_available_from_war_month_features():
+    """Лаг событий UCDP: признаки строки месяца m не зависят от событий месяца m и позже
+    (файл Candidate за месяц m выходит в m+1), от списка сторон ACD за текущий год, от
+    структурных признаков текущего года и населения двух последних лет."""
+    assert temporal.monthly_lag("ucdp_events") == 1 == month_features.EVENT_LAG == live_pairs.EVENT_LAG
+    s = synth_month()
+    as_of = pd.Period("2008-06", freq="M")
+    row = lambda f: f[f.ym == as_of].sort_values("gw")  # noqa: E731
+    ged = s["ged"]
+    bad_ged = _bad_events(ged, _ym(ged) >= as_of)
+    bad_parties, bad_acd = s["parties"].copy(), s["acd"].copy()
+    now = bad_parties.year >= as_of.year
+    bad_parties.loc[now, "parties"] = bad_parties.loc[now, "parties"].map(lambda _: WAR_STATES)
+    bad_acd.loc[bad_acd.year >= as_of.year, "gwno_b_2nd"] = ", ".join(map(str, WAR_STATES))
+    bad_struct = _corrupt(s["struct"], s["struct"].year >= as_of.year, features_pitf.PITF_FEATURES)
+    bad_pop = _corrupt(s["pop"], s["pop"].year >= as_of.year - 1, ["population"])
+    clean = row(_month_features(s))
+    assert all(clean[c].nunique() > 1 for c in ("sb_ld_12", "ns_ld_12", "os_ld_12", "nb_low_ld12", "lv_dir_ld12", "lv_in_ld12", "lv_px_ld12", "ac_m12"))
+    _same(clean, row(_month_features(s, ged=bad_ged, parties=bad_parties, acd=bad_acd, struct=bad_struct, pop=bad_pop)), MONTH_COLS)
+    # контроль: без лага события самого месяца m обязаны быть видны
+    only_m = _bad_events(ged, _ym(ged) == as_of)
+    assert _differs(row(_month_features(s, lag=0)), row(_month_features(s, lag=0, ged=only_m)), ["sb_ld_3", "ld_war_1", "ld_best_1"])
+    _same(clean, row(_month_features(s, ged=only_m)), MONTH_COLS)
+    # контроль самой проверки: порча прошлого меняет признаки
+    assert _differs(clean, row(_month_features(s, ged=_bad_events(ged, _ym(ged) < as_of))), ["sb_ld_12", "ld_war_60"])
+
+
+@pytest.mark.parametrize("h", [3, 12])
+def test_future_blindness_war_monthly_model(h):
+    """Месячный прогноз войны в точке as_of не меняется, если испортить все события месяца
+    as_of и позже: обучение берёт только строки с закрывшимся окном и вышедшими событиями
+    (t + h + lag ≤ as_of), признаки — события по as_of − lag."""
+    s = synth_month()
+    as_of = pd.Period("2009-06", freq="M")
+    feats = model_month.SETS["full"]
+
+    def run(lag_label: int = 1, **over):
+        f = _month_features(s, **over)
+        return model_month.forecast_asof(f, as_of, feats, h, lag=lag_label, C=0.1).sort_values("gw")
+
+    ged = s["ged"]
+    bad_ged = _bad_events(ged, _ym(ged) >= as_of)
+    bad_parties = s["parties"].copy()
+    fut = bad_parties.year >= as_of.year
+    bad_parties.loc[fut, "parties"] = bad_parties.loc[fut, "parties"].map(lambda _: WAR_STATES)
+    clean = run()
+    assert clean.p_onset.nunique() > 1 and clean.p_cont.nunique() > 1 and len(clean) == len(WAR_STATES)
+    _same(clean, run(ged=bad_ged, parties=bad_parties), ["p", "p_onset", "p_cont"])
+    # контроль: порча последнего месяца, чьи события уже вышли (as_of − 1), прогноз меняет;
+    # если «забыть» лаг в правиле известности метки — в обучение попадает окно с испорченным месяцем
+    assert _differs(clean, run(ged=_bad_events(ged, _ym(ged) == as_of - 1)), ["p_onset", "p_cont"])
+    only_m = _bad_events(ged, _ym(ged) == as_of)
+    assert _differs(run(lag_label=0), run(lag_label=0, ged=only_m), ["p_onset", "p_cont"])
+
+
+@pytest.mark.parametrize("h", [3, 6, 12])
+def test_month_label_and_evaluable_sync(h):
+    """Метка горизонта h — война в месяцы m+1 … m+h и ничего больше; за концом хроники —
+    пропуск, а не ноль; на «мирных» строках положительная метка — всегда начало войны по
+    правилу 12 тихих месяцев (целевая и отбор строк согласованы)."""
+    f = _month_features(synth_month())
+    end = MONTH_LAST - 6
+    d = model_month.with_label(f, h, label_end=end)
+    assert d[d.ym + h > end].y.isna().all() and d[d.ym + h <= end].y.notna().all()
+    w = d.pivot(index="o", columns="gw", values="state_war25")
+    fut = pd.concat([w.shift(-k) for k in range(1, h + 1)]).groupby(level=0).max().stack().rename("want").reset_index()
+    m = d[d.y.notna()].merge(fut, on=["o", "gw"])
+    assert len(m) > 1000 and (m.y == m.want).all() and 0 < m.y.mean() < 1
+    on = d.pivot(index="o", columns="gw", values="onset_state_war25")
+    fon = pd.concat([on.shift(-k) for k in range(1, h + 1)]).groupby(level=0).max().stack().rename("onset_in_window").reset_index()
+    q = d[d.y.notna() & (d.quiet_true == 1)].merge(fon, on=["o", "gw"])
+    assert q.y.sum() > 5 and (q.y == q.onset_in_window).all()
+
+
+def test_live_pairs_kinds_and_lag():
+    """Живая хроника пар: прямое столкновение, прокси и вторжение не смешиваются и не
+    считаются дважды; годовой признак строки T не видит событий декабря T (лаг 1 месяц)."""
+    ev = pd.DataFrame({
+        "gw": [10, 10, 12, 10], "year": [2000, 2000, 2000, 2000], "month": [3, 5, 7, 12], "type_of_violence": [1, 1, 1, 1],
+        "best": [5, 7, 3, 9], "conflict_new_id": [1, 2, 3, 1], "gwnoa": ["10", "10", "11", "10"], "gwnob": [11.0, np.nan, np.nan, 11.0]})
+    opp = pd.DataFrame({"conflict_id": [2], "year": [2000], "a": [10], "b": [13]})
+    opp = pd.concat([opp, opp.rename(columns={"a": "b", "b": "a"})])
+    pe = live_pairs.pair_events(ev, opp, acd_lag=0)
+    got = {(r.a, r.b, r.kind): r.deaths for r in pe.groupby(["a", "b", "kind"], as_index=False).deaths.sum().itertuples()}
+    assert got == {(10, 11, "direct"): 14, (11, 10, "direct"): 14, (10, 13, "proxy"): 7, (13, 10, "proxy"): 7,
+                   (12, 11, "inc_in"): 3, (11, 12, "inc_out"): 3}
+    assert live_pairs.pair_events(ev, opp, acd_lag=1).query("kind == 'proxy'").empty  # список сторон 2000 года в 2000-м ещё не вышел
+    f1 = live_pairs.annual_features(pe, [2000], lag=1).set_index(["a", "b"])
+    f0 = live_pairs.annual_features(pe, [2000], lag=0).set_index(["a", "b"])
+    assert np.isclose(f1.loc[(10, 11), "live_ld3"], np.log1p(5)) and np.isclose(f0.loc[(10, 11), "live_ld3"], np.log1p(14))
+    cm = live_pairs.country_month(pe)
+    assert cm[cm.gw == 12].lv_in_d.sum() == 3 and cm[cm.gw == 11].lv_out_d.sum() == 3 and cm[cm.gw == 10].lv_dir_d.sum() == 14
+
+
+def _dyad_live(s: dict, event_lag: int = 1, **over) -> pd.DataFrame:
+    s = {**s, **over}
+    y0, y1 = s["span"]
+    grid = dyads.build_grid(s["states"], s["contig"], y0, y1, powers=DYAD_POWERS)
+    opp = dyads.opponents(s["acd"])
+    dw = dyads.dyad_wars(s["ged"], opp, s["neighbors"])
+    return model_dyad_live.build_features(grid, s["states"], opp, dw, s["ged"], s["unga"], s["mid"], s["cap"], event_lag=event_lag,
+                                          mid_last_year=y1 - 2)
+
+
+def test_future_blindness_dyad_live():
+    """Доводка диад: прогноз пары, сырая свёртка и откалиброванный `p_ext` в точке T не зависят
+    от событий после ноября T (декабрьский файл к 1 января не вышел), от сторон войн после T
+    и от страновых меток внешнего нападения, ещё не известных к T."""
+    s = synth_month()
+    T = 2008
+    year, _ = _war_panels(s["ged"], s["states"], s["parties"], s["neighbors"], s["span"])
+
+    def run(event_lag: int = 1, labels_bad: bool = False, **over):
+        d = _dyad_live(s, event_lag, **over)
+        src = {**s, **over}
+        ext = dyads.external_wars(dyads.dyad_wars(src["ged"], dyads.opponents(src["acd"]), s["neighbors"]))
+        labels = model_dyad_live.ext_onset_labels(year, ext)
+        if labels_bad:
+            labels.loc[labels.year >= T, "ext_onset_next"] = 1 - labels.loc[labels.year >= T, "ext_onset_next"].fillna(0)
+        c, pairs = model_dyad_live.external_asof(d, labels, T, C=0.1, return_pairs=True)
+        return c.sort_values("gw"), pairs.sort_values(["a", "b"])
+
+    ged, acd = s["ged"], s["acd"]
+    late = (ged.year > T) | ((ged.year == T) & (ged.month == 12) & (ged.type_of_violence == 1))
+    live_only = late & (ged.year == T)  # декабрь T: годовая целевая пары его видит, живые признаки — нет
+    bad_acd = acd.copy()
+    bad_acd.loc[bad_acd.year > T, "gwno_b_2nd"] = ", ".join(map(str, WAR_STATES))
+    c0, p0 = run()
+    assert c0.s.nunique() > 1 and (c0.s != c0.p_ext).any() and p0[live_pairs.LIVE_FEATURES[0]].max() > 0 and len(p0) > 50
+    c1, p1 = run(ged=_bad_events(ged, ged.year > T), acd=bad_acd, labels_bad=True)
+    _same(c0, c1, ["s", "p_ext"])
+    _same(p0, p1, ["p_dyad", *model_dyad_live.LIVE_SET])
+    # декабрь T: живые признаки строки T его не видят; без лага — видят
+    dec = ged.copy()
+    dec.loc[live_only, "gwnob"] = np.where(dec.loc[live_only, "gw"] < 20, dec.loc[live_only, "gw"] + 1, dec.loc[live_only, "gw"] - 1).astype(float)
+    def feats(lag, g):
+        d = _dyad_live(s, lag, ged=g)
+        return d[d.year == T].sort_values(["a", "b"])
+
+    _same(feats(1, ged), feats(1, dec), live_pairs.LIVE_FEATURES)
+    assert _differs(feats(0, ged), feats(0, dec), live_pairs.LIVE_FEATURES), "без лага декабрьские события обязаны быть видны"
+    # раздельные модели: пара без границы не получает модель соседей
+    test = model_dyad_live.forecast_asof(_dyad_live(s), T, C=0.1)
+    assert set(test.model) <= {"near", "far", "pooled"} and not ((test.near == 0) & (test.model == "near")).any()

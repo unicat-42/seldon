@@ -1,0 +1,16 @@
+country,p_ext,s_raw,top_b
+Turkey,0.3060,0.2726,Iraq
+United States of America,0.2579,0.2351,Iran
+Tanzania,0.2338,0.2161,Rwanda
+Iraq,0.1935,0.1841,Turkey
+Bahrain,0.1927,0.1835,Yemen (North Yemen)
+Israel,0.1766,0.1705,Yemen (North Yemen)
+Syria,0.1530,0.1512,Turkey
+United Arab Emirates,0.1260,0.1286,Yemen (North Yemen)
+Iran,0.1150,0.1192,Turkey
+Kenya,0.1014,0.1074,Rwanda
+South Africa,0.0807,0.0889,Rwanda
+Armenia,0.0699,0.0789,Azerbaijan
+DR Congo (Zaire),0.0663,0.0756,Uganda
+Uganda,0.0661,0.0754,DR Congo (Zaire)
+Azerbaijan,0.0655,0.0748,Armenia

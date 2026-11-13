@@ -5,7 +5,8 @@
         набор:    hist (история, features.py) | pitf (+ режим, смертность, население) |
                   econ (+ экономика) | histecon | polit (+ лидеры, перевороты, протесты) |
                   vdem (V-Dem вместо Polity5) | epr (pitf + этническое исключение) | vdem_epr |
-                  pitf_dyad (pitf + свёрнутые диадные признаки, нужен `dyads`)
+                  pitf_dyad (pitf + свёрнутые диадные признаки, нужен `dyads`) |
+                  pitf_smoke, pitf_live (pitf + годовой срез предвестников, нужен `month_features`)
         целевая:  state_war25 (по умолчанию) | state_war1000 | war25 | war1000 (старые)
 
 История (признаки `features.py`) считается по state_war25; для старой целевой war25 —
@@ -66,6 +67,7 @@ from seldon.domains.conflict.features_epr import EPR_FEATURES
 from seldon.domains.conflict.features_pitf import PITF_FEATURES
 from seldon.domains.conflict.features_polit import POLIT_FEATURES
 from seldon.domains.conflict.features_vdem import VDEM_FEATURES
+from seldon.domains.conflict.month_features import LIVE, SMOKE, SMOKE_NB
 from seldon.domains.conflict.panel import ONSET_OF
 from seldon.evaluation.backtest import backtest
 from seldon.sources.ucdp import YEAR_TO
@@ -88,6 +90,11 @@ FEATURE_SETS = {
     "vdem_epr": ([*HIST_FEATURES, *PITF_MACRO, *VDEM_FEATURES, *EPR_FEATURES], "features_struct_country_year.parquet"),
     # чекпоинт 3.2: свёрнутые на страну диадные признаки ПОВЕРХ `pitf` (контроль к двум каналам)
     "pitf_dyad": ([*HIST_FEATURES, *PITF_FEATURES, *DYAD_COUNTRY_FEATURES], "features_dyad_country_year.parquet"),
+    # чекпоинт 4.2: годовой срез месячных предвестников (строка декабря T, события по ноябрь T):
+    # `pitf_smoke` — стычки 1–24 погибших, типы насилия 2 и 3, то же у соседей;
+    # `pitf_live` — плюс столкновения с другими государствами (нужен `month_features`)
+    "pitf_smoke": ([*HIST_FEATURES, *PITF_FEATURES, *SMOKE, *SMOKE_NB], "features_smoke_country_year.parquet"),
+    "pitf_live": ([*HIST_FEATURES, *PITF_FEATURES, *SMOKE, *SMOKE_NB, *LIVE], "features_smoke_country_year.parquet"),
 }
 # история считается по этой целевой (state_war1000 — редкая, её историю ведём по state_war25)
 HISTORY_OF = {"state_war25": "state_war25", "state_war1000": "state_war25", "war25": "war25", "war1000": "war25"}

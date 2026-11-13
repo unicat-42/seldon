@@ -55,7 +55,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, REPORTS
-from seldon.core.temporal import label_known
+from seldon.core.temporal import label_known, last_available_year
 from seldon.domains.conflict.features_pitf import PITF_FEATURES
 from seldon.domains.conflict.month_features import BASE, CFX, EVENT_LAG, HIST, HIST_DRY, LIVE, SMOKE, SMOKE_NB
 from seldon.sources.ucdp import YEAR_TO
@@ -143,7 +143,11 @@ def forecast_asof(f: pd.DataFrame, as_of: pd.Period, features: list[str], h: int
     (t + h + lag ≤ as_of). `test` — строки, для которых нужен прогноз (по умолчанию — месяц
     `as_of`). Колонки: p_onset, p_cont, p (по известному состоянию), C."""
     d = f if "y" in f else with_label(f, h, spec.state)
-    known = d[label_known(d.ym, as_of - lag, h) & d.y.notna() & (d.ym >= TRAIN_FROM)]
+    # факт войны в месяце года Y зависит от списка сторон ACD за Y («сторона войны у соседа»),
+    # а он выходит после конца года: метка известна, только если её окно кончается в году,
+    # за который список к моменту прогноза (первый день после `as_of`) уже есть
+    acd_year = last_available_year("ucdp_acd", (as_of + 1).start_time)
+    known = d[label_known(d.ym, as_of - lag, h) & ((d.ym + h).dt.year <= acd_year) & d.y.notna() & (d.ym >= TRAIN_FROM)]
     test = (d[d.ym == as_of] if test is None else test).copy()
     quiet = known[spec.quiet_true] == 1
     test["p_onset"], c, m = _fit_predict(known[quiet], test, features, C)

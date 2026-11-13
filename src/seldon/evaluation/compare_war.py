@@ -25,6 +25,12 @@
                        выборки убраны;
     внутренние начала  наоборот: положительные — начала без государства-противника.
 Выход: reports/war_dyad_comparison.csv
+
+Чекпоинт 4.2 — `compare_war live`: эталон `pitf` против доводки диад (`dy_cal` — только
+калибровка `p_ext`, `dy_live_raw` — живые стычки и раздельные модели без калибровки,
+`dy_live_pooled`, `dy_live` — все правки; `dy_intext` — вариант 3.2) и годового среза
+предвестников (`pitf_smoke`, `pitf_live`). К выборкам добавлены «тихие ≥ 5», «после 2014».
+Выход: reports/war_live_comparison.csv
 """
 
 from __future__ import annotations
@@ -52,6 +58,20 @@ DYAD_SAMPLES = {
     "внутренние начала": lambda d: (d.at_risk == 1) & ~((d[ONSET_OF[TARGET]] == 1) & (d.ext_war == 1)),
 }
 DYAD_NAMES = ["pitf", "dy_indep", "dy_intext", "dy_cal2", "pitf_dyad"]
+# чекпоинт 4.2: доводка диад (`dyads_live`) и годовой срез предвестников
+LIVE_NAMES = ["pitf", "dy_intext", "dy_cal", "dy_live_raw", "dy_live_pooled", "dy_live", "pitf_smoke", "pitf_live"]
+QUIET_SHORT = 5
+LIVE_SAMPLES = {
+    "мир": SAMPLES["мир"],
+    f"тихие ≥ {QUIET_SHORT}": lambda d: (d.at_risk == 1) & (d.years_since_war >= QUIET_SHORT),
+    f"тихие ≥ {QUIET_YEARS}": SAMPLES[f"тихие ≥ {QUIET_YEARS}"],
+    "постсоветские": SAMPLES["постсоветские"],
+    "после 2014": lambda d: (d.at_risk == 1) & (d.year >= 2015),
+    "после 2014, тихие ≥ 5": lambda d: (d.at_risk == 1) & (d.year >= 2015) & (d.years_since_war >= QUIET_SHORT),
+    "внешние начала": DYAD_SAMPLES["внешние начала"],
+    "внешние начала после 2014": lambda d: DYAD_SAMPLES["внешние начала"](d) & (d.year >= 2015),
+    "внутренние начала": DYAD_SAMPLES["внутренние начала"],
+}
 METRICS = ("auc", "auc_within_year", "brier")
 
 
@@ -101,7 +121,7 @@ def show(t: pd.DataFrame) -> str:
     for sample, g in t.groupby("sample", sort=False):
         lines.append(f"{sample}: {int(g.n.iloc[0])} страна-лет, начал войны {int(g.n_onset.iloc[0])}")
         for r in g.itertuples():
-            s = (f"  {r.model:9s} AUC {r.auc:.3f} [{r.auc_lo:.3f}; {r.auc_hi:.3f}], внутри года {r.auc_within_year:.3f}, "
+            s = (f"  {r.model:14s} AUC {r.auc:.3f} [{r.auc_lo:.3f}; {r.auc_hi:.3f}], внутри года {r.auc_within_year:.3f}, "
                  f"Brier {r.brier:.4f}, calib {r.calib:.2f}")
             if pd.notna(getattr(r, "d_auc", np.nan)):
                 s += (f" | ΔAUC {r.d_auc:+.3f} [{r.d_auc_lo:+.3f}; {r.d_auc_hi:+.3f}], внутри года {r.d_auc_within_year:+.3f} "
@@ -110,12 +130,12 @@ def show(t: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def main_dyad() -> int:
-    pred = load(DYAD_NAMES)
+def main_dyad(names: list[str] = DYAD_NAMES, samples: dict = DYAD_SAMPLES, out: str = "war_dyad_comparison.csv") -> int:
+    pred = load(names)
     ext = pd.read_parquet(DATA_PROCESSED / "dyad_ext_country_year.parquet")
     pred = pred.merge(ext, on=["gw", "year"], how="left").fillna({"ext_war": 0})
-    t = compare(pred, DYAD_NAMES, "pitf", samples=DYAD_SAMPLES)
-    t.to_csv(REPORTS / "war_dyad_comparison.csv", index=False, float_format="%.4f")
+    t = compare(pred, names, "pitf", samples=samples)
+    t.to_csv(REPORTS / out, index=False, float_format="%.4f")
     print(f"эталон: pitf; целевая: начало {TARGET} в T+1; Δ — к эталону, парный бутстрэп по годам ({N_BOOT} реплик)")
     print(show(t))
     return 0
@@ -124,6 +144,8 @@ def main_dyad() -> int:
 def main(argv: list[str]) -> int:
     if argv[:1] == ["dyad"]:
         return main_dyad()
+    if argv[:1] == ["live"]:
+        return main_dyad(LIVE_NAMES, LIVE_SAMPLES, "war_live_comparison.csv")
     ref, *others = argv or ["pitf", "vdem", "epr", "vdem_epr"]
     names = [ref, *others]
     t = compare(load(names), names, ref)
