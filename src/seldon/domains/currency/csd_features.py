@@ -8,7 +8,8 @@
     сигнал проявляется как `csd_peg_res = peg_share12 * max(res_var_surge12, 0)` и
     `csd_peg_res_ar1 = peg_share12 * max(res_ar1_12, 0)`.
 
-Все признаки вычисляются причинно на строке месяца `m` только по данным ≤ `m`.
+Все признаки вычисляются причинно на строке месяца `m` только по данным ≤ `m`
+(резервы — ≤ `m` − лаг публикации `imf_reserves`).
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import numpy as np
 import pandas as pd
 
 from seldon.core.csd import ar1_delta, by_entity, rolling_ar1, var_surge
+from seldon.core.panel import lag_columns
+from seldon.core.temporal import monthly_lag
 
 CSD_RAW = [
     "fx_var_surge12",
@@ -67,11 +70,15 @@ def _step_return(df: pd.DataFrame, col: str, lo: float, hi: float) -> pd.Series:
     return ret.clip(lower=lo, upper=hi)
 
 
-def build_fx_csd(panel: pd.DataFrame) -> pd.DataFrame:
-    """Добавить признаки критического замедления и `peg_resfall_missing` к панели `econ_contagion`."""
+def build_fx_csd(panel: pd.DataFrame, reserves_lag: int | None = None) -> pd.DataFrame:
+    """Добавить признаки критического замедления и `peg_resfall_missing` к панели `econ_contagion`.
+    Ряд изменений резервов берётся с лагом публикации `imf_reserves` (`core/temporal.py`):
+    на строке месяца m окна резервов кончаются в m − лаг."""
+    lag = monthly_lag("imf_reserves") if reserves_lag is None else reserves_lag
     d = panel.sort_values(["iso3", "month"]).copy()
     d["fx_ret1"] = _step_return(d, "fx", -0.5, 2.0)
     d["res_ret1"] = _step_return(d, "reserves", -0.8, 2.0)
+    d = lag_columns(d, "iso3", "month", ["res_ret1"], lag)
 
     d["fx_var_surge12"] = by_entity(d, "iso3", "fx_ret1", var_surge, short=12, long=48, min_short=6, min_long=24, eps=1e-6)
     d["fx_ar1_12"] = by_entity(d, "iso3", "fx_ret1", rolling_ar1, window=12, min_periods=8)

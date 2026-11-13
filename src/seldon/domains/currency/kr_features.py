@@ -11,8 +11,8 @@ import pandas as pd
 
 from seldon import DATA_PROCESSED
 from seldon.core.entities import GW_TO_ISO3
-from seldon.core.panel import pct_change
-from seldon.core.temporal import last_available_year_in_month
+from seldon.core.panel import lag_columns, pct_change
+from seldon.core.temporal import last_available_year_in_month, monthly_lag
 
 # индикатор → в каком хвосте сигнал: "high" — сигнал при больших значениях, "low" — при малых
 INDICATORS = {
@@ -70,7 +70,22 @@ def fill_cpi(p: pd.DataFrame, annual: pd.DataFrame) -> pd.DataFrame:
     return p.drop(columns=["year", "g_annual"])
 
 
-def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None) -> pd.DataFrame:
+RESERVE_COLS = ["reserves_g12", "reserves_g1", "m2_res_g12"]  # признаки, которым нужны резервы МВФ
+
+
+def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None, reserves_lag: int | None = None) -> pd.DataFrame:
+    """Индикаторы KLR на строке месяца m — только по данным, известным к концу m.
+
+    Резервы МВФ за месяц m выходят к концу m + `reserves_lag` (по умолчанию лаг `imf_reserves`
+    из `core/temporal.py`; 0 — «резервы известны сразу», только для контроля в тестах):
+      - `reserves_g12`, `reserves_g1`, `m2_res_g12` стоят на строке m по значениям месяца m − лаг;
+      - `emp_z_max3` — давление за 3 месяца: для месяцев, где резервы уже вышли (≤ m − лаг), —
+        полный EMP; для более свежих — только курсовая часть (`de_z`: изменение курса в своих
+        σ), по тому же правилу, что и «резервов нет — EMP только по курсу»;
+      - `world_crisis3` — доля стран с EMP-кризисом за 3 месяца, кончающихся в m − лаг
+        (кризис по EMP нельзя засчитать, пока не вышли резервы).
+    Колонки `emp`, `emp_z`, `crisis` остаются целевыми (что было на самом деле)."""
+    lag = monthly_lag("imf_reserves") if reserves_lag is None else reserves_lag
     p = p.copy()
     us = p[p.iso3 == "USA"].set_index("month")[["cpi", "rate"]].rename(
         columns={"cpi": "cpi_us", "rate": "rate_us"})
@@ -90,6 +105,8 @@ def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None) -> pd.DataF
     p["spread"] = (p.lending - p.deposit).clip(-20, 100)
     p["m2_res"] = p.broad_money / p.fx / p.reserves
     p["m2_res_g12"] = gb.m2_res.transform(lambda s: pct_change(s, 12)).clip(-0.9, 5)
+    p = lag_columns(p, "iso3", "month", RESERVE_COLS, lag)
+    gb = p.groupby("iso3")
     # экспорт помесячно шумный и сезонный: сравниваем суммы за 12 мес
     x12 = gb.exports.transform(lambda s: s.rolling(12, min_periods=12).sum())
     p["exports_g12"] = (x12 / x12.shift(12) - 1).where(p.iso3 == p.iso3.shift(12)).clip(-0.9, 3)
@@ -97,8 +114,10 @@ def add_indicators(p: pd.DataFrame, war: pd.DataFrame | None = None) -> pd.DataF
     live = p[p.own_currency & p.de.notna()]
     world = live.groupby("month").agg(n=("crisis", "count"), k=("crisis", "sum"))
     share = (world.k / world.n).rolling(3, min_periods=1).sum()
-    p["world_crisis3"] = p.month.map(share)
-    p["emp_z_max3"] = gb.emp_z.transform(lambda s: s.rolling(3, min_periods=1).max()).clip(-5, 50)
+    p["world_crisis3"] = (p.month - lag).map(share)
+    de_z = (p.de - p.med_e) / p.sd_e
+    recent = [(p.emp_z if j >= lag else de_z).groupby(p.iso3).shift(j) for j in range(3)]
+    p["emp_z_max3"] = pd.concat(recent, axis=1).max(axis=1).clip(-5, 50)
     if war is None:
         war = load_war()
     return p.merge(war[["iso3", "month", *WAR_COLS]], on=["iso3", "month"], how="left")

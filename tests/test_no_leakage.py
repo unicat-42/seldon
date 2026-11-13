@@ -459,6 +459,43 @@ def test_available_from_cpi_fill():
     _same(clean, bad, ["logit", "signals", "pressure", *kr_features.INDICATORS])
 
 
+def test_available_from_fx_reserves():
+    """Месячные резервы МВФ за месяц m выходят к концу m+2 (`imf_reserves`): прогноз в точке
+    as_of — боевой `econ_kr` и живой набор `live_fx` — не зависит от резервов месяцев
+    as_of − 1 и as_of. Контроль: без лага та же порча обязана быть видна."""
+    from seldon.domains.currency import econ_csd
+
+    lag = temporal.monthly_lag("imf_reserves")
+    assert lag == 2
+    raw, annual, war = synth_monthly()
+    as_of = pd.Period("2010-06", freq="M")
+    bad_raw = _corrupt(raw, raw.month > as_of - lag, ["reserves"])
+    res_feats = ["reserves_g12", "reserves_g1", "m2_res_g12", "emp_z_max3", "world_crisis3"]
+
+    def run(raw, reserves_lag=lag):
+        p = econ_kr.build_panel(raw, annual, war, target="deval15", reserves_lag=reserves_lag)
+        return econ_kr.forecast_asof(p, as_of).sort_values("iso3")
+
+    clean = run(raw)
+    assert clean.reserves_g12.nunique() > 1 and clean.emp_z_max3.nunique() > 1
+    _same(clean, run(bad_raw), ["logit", "signals", "pressure", *kr_features.INDICATORS])
+    assert _differs(run(raw, 0), run(bad_raw, 0), res_feats), "контроль: без лага порча свежих резервов обязана быть видна"
+    # целевая `deval15` от резервов не зависит вовсе
+    _same(clean, run(bad_raw), ["y", "evaluable"])
+
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s, c = synth_fx_struct(KR_COUNTRIES, months, fx=raw), synth_contagion(KR_COUNTRIES, months)
+
+    def run_live(raw, name):
+        p = econ_csd.build_panel_from(raw, annual, war, s, c)
+        return econ_csd.forecast_asof(econ_contagion.with_horizon(p, 3), as_of, name, 3).sort_values("iso3")
+
+    for name in ("live_fx", "live_fx_swap", "live_fx_csd"):
+        live = run_live(raw, name)
+        assert live.peg_resfall.nunique() > 1
+        _same(live, run_live(bad_raw, name), ["logit", "peg_resfall", "peg_resfall_missing", "res_var_surge12", "res_ar1_12"])
+
+
 def test_available_from_war_monthly():
     """Месячные ПРИЗНАКИ войны (`*_rt`): список сторон ACD за текущий год ещё не вышел."""
     ged, states, parties, neighbors, span = synth_war()

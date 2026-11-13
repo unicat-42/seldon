@@ -126,12 +126,13 @@ def load_panel(last_month: str = LAST_MONTH) -> pd.DataFrame:
 
 
 def build_panel(raw: pd.DataFrame, annual_cpi: pd.DataFrame, war: pd.DataFrame | None = None,
-                target: str = "crisis", drop_shared: bool = True) -> pd.DataFrame:
+                target: str = "crisis", drop_shared: bool = True, reserves_lag: int | None = None) -> pd.DataFrame:
     """Сырые ряды → панель с EMP, кризисами, индикаторами и целевой. Чистая функция:
-    значения на строке месяца m зависят только от данных ≤ m (кроме `y` — это будущее)."""
+    значения на строке месяца m зависят только от данных ≤ m (кроме `y` — это будущее);
+    признаки с резервами — от резервов ≤ m − лаг публикации (`reserves_lag`, см. `add_indicators`)."""
     p = fill_cpi(raw, annual_cpi)
     p = add_emp_and_crises(p, drop_shared=drop_shared)
-    p = add_indicators(p, war)
+    p = add_indicators(p, war, reserves_lag)
     return add_target(p, target)
 
 

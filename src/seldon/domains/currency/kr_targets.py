@@ -54,7 +54,7 @@ def add_emp_and_crises(p: pd.DataFrame, drop_shared: bool = True) -> pd.DataFram
     parts = []
     for _, g in p.groupby("iso3", sort=False):
         de, dr, calm = g.de.to_numpy(), g.dr.to_numpy(), ~g.hyper.to_numpy()
-        _, sd_e, n_calm = _expanding_robust(de, calm)
+        med_e, sd_e, n_calm = _expanding_robust(de, calm)
         _, sd_r, _ = _expanding_robust(dr, calm)
         with np.errstate(divide="ignore", invalid="ignore"):
             w = sd_e / sd_r
@@ -62,7 +62,7 @@ def add_emp_and_crises(p: pd.DataFrame, drop_shared: bool = True) -> pd.DataFram
         emp = np.where(np.isnan(dr), de, de - w * dr)  # если резервов нет — EMP только по курсу
         emp[np.isnan(de)] = np.nan
         emp_mean, emp_sd, _ = _expanding_robust(emp, calm)
-        parts.append(pd.DataFrame({"sd_e": sd_e, "sd_r": sd_r, "n_calm": n_calm, "emp": emp,
+        parts.append(pd.DataFrame({"med_e": med_e, "sd_e": sd_e, "sd_r": sd_r, "n_calm": n_calm, "emp": emp,
                                    "emp_mean": emp_mean, "emp_sd": emp_sd}, index=g.index))
     p = p.join(pd.concat(parts))
     p["emp_z"] = (p.emp - p.emp_mean) / p.emp_sd
