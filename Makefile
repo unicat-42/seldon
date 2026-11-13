@@ -19,6 +19,7 @@
 #   make test       автотесты на утечки будущего (секунды)
 #   make vintage    заморозить прогнозы в forecasts/ГГГГ-ММ/ (после `make all`; раз в месяц)
 #   make web        данные для веб-витрины: JSON в web/data/ (после `make all`; ≈ 30 секунд)
+#   make serve      открыть веб-витрину локально: http://localhost:8791 (после `make web`)
 #   make data       скачать сырые данные (Laeven–Valencia — PDF руками, см. подсказку команды)
 #
 # Все команды — `uv run python -m seldon <команда>`; список: `uv run python -m seldon`.
@@ -26,7 +27,7 @@
 
 RUN = uv run python -m seldon
 
-.PHONY: all variants replicate risk test data vintage web
+.PHONY: all variants replicate risk test data vintage web serve
 
 # Порядок важен: панель войн → признаки → база → модель войн → хроника LV → месячный
 # валютный блок (ему нужна месячная панель войн) → годовой валютный (нужна LV) →
@@ -121,3 +122,7 @@ vintage:
 # Данные для веб-витрины (Этап 5): читает готовые таблицы, сверяет пересчёт с витриной.
 web:
 	$(RUN) web_export
+
+# Веб-витрина — статические файлы в web/, сервер нужен только чтобы браузер отдал JSON.
+serve:
+	python3 -m http.server 8791 --bind 127.0.0.1 --directory web

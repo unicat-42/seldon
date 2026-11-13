@@ -1,0 +1,6 @@
+{
+  "name": "seldon-web",
+  "private": true,
+  "type": "module",
+  "description": "Веб-витрина «Селдона»: статические файлы без сборки. Данные — make web."
+}

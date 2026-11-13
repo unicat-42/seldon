@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Селдон — прогнозы кризисов, которые можно проверить</title>
+<meta name="description" content="Вооружённые конфликты, валютные и банковские кризисы: вероятности для стран мира, объяснения модели и проверка на прошлых событиях.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">К содержанию</a>
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="brand" href="#/">Селдон</a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="#/forecasts" data-nav="forecasts">Прогнозы</a>
+      <a href="#/check" data-nav="check">Проверка</a>
+      <a href="#/archive" data-nav="archive">Архив</a>
+      <a href="#/method" data-nav="method">Метод и данные</a>
+    </nav>
+    <div class="search" role="search">
+      <label class="vh" for="q">Найти страну</label>
+      <input id="q" type="search" placeholder="Найти страну" autocomplete="off" spellcheck="false">
+      <ul id="q-list" class="search-list" hidden></ul>
+    </div>
+  </div>
+</header>
+<main id="main" class="wrap" tabindex="-1"><p class="loading">Загружаем данные…</p></main>
+<footer class="site-foot">
+  <div class="wrap foot-row">
+    <span>Селдон · открытое исследование кризисов</span>
+    <span id="foot-build"></span>
+  </div>
+</footer>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

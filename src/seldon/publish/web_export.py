@@ -815,7 +815,8 @@ def _compact(blocks: dict) -> dict:
     first = next(b for b in blocks.values() if b and b.get("kind") == "logit")
     out = {"model": first["model"], "scale": first["scale"], "intercept": first["intercept"], "base_rate": first["base_rate"],
            "n_train": first["n_train"], "beta": [x["beta"] for x in first["features"]],
-           "features": [{k: x[k] for k in ("key", "label", "unit", "source")} for x in first["features"]], "rows": {}}
+           "features": [{**{k: x[k] for k in ("key", "label", "unit", "source")}, "nat": FEATURE_META[x["key"]].get("nat")}
+                        for x in first["features"]], "rows": {}}
     for key, b in blocks.items():
         fs = b["features"]
         out["rows"][key] = {"p": b["p"], "lo": b["lo"], "hi": b["hi"], "eta": b["eta"],

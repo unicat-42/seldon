@@ -426,3 +426,87 @@ def test_bundle_archive_reproduces_frozen_vintage(bundle):
     risk = bundle["risk"]
     for iso, r in v["records"]["p_state_war25_2025"].items():
         assert r["outcome"] == int(risk.at[iso, "state_war25_now"])
+
+
+# ---------------------------------------------------------------------------
+# 3. Статический сайт (чекпоинт 5.2)
+# ---------------------------------------------------------------------------
+
+WEB = PROJECT_ROOT / "web"
+JS = sorted((WEB / "js").rglob("*.js"))
+
+
+def test_site_is_static_and_self_contained():
+    """Сайт — статические файлы без сборки и без сервера: страница, стили, ES-модули. Модули
+    импортируют только друг друга, данные берут только из `data/` (относительные пути — сайт
+    работает и из подпапки GitHub Pages)."""
+    import re
+
+    html = (WEB / "index.html").read_text()
+    assert 'src="js/app.js"' in html and 'href="css/styles.css"' in html and 'lang="ru"' in html
+    for label in ("Прогнозы", "Проверка", "Архив", "Метод и данные", "Найти страну"):
+        assert label in html
+    assert "Страны</a>" not in html  # отдельного пункта «Страны» в шапке нет
+    names = {p.relative_to(WEB / "js").as_posix() for p in JS}
+    assert {"app.js", "lib.js", "views/home.js", "views/forecasts.js", "views/country.js", "views/archive.js"} <= names
+    for p in JS:
+        src = p.read_text()
+        for target in re.findall(r'from "([^"]+)"', src):
+            assert target.startswith("."), (p.name, target)  # никаких внешних библиотек
+            assert (p.parent / target).resolve().exists(), (p.name, target)
+        assert "http://" not in src.replace("http://www.w3.org/2000/svg", "") and "localhost" not in src
+        assert 'fetch("/' not in src and "fetch(`/" not in src  # только относительные пути
+
+
+def test_site_state_dictionary_covers_export():
+    """Единый словарь состояний: у каждого кода причины из экспортера есть вид оформления на
+    сайте, а обязательные тексты раздела 6 ТЗ совпадают дословно."""
+    lib = (WEB / "js" / "lib.js").read_text()
+    for code in web_export.STATUS_TEXT:
+        assert f"{code}:" in lib, code
+    required = ["Нет ряда BIS", "Нет валютного ряда", "Нет рыночного ряда", "Нет ряда денежной массы",
+                "Идёт конфликт · посмотреть продолжение", "Интервал не рассчитан", "Целевой период ещё идёт",
+                "Ожидаются данные об исходе"]
+    assert set(required) <= set(web_export.STATUS_TEXT.values())
+    assert "· неприменимо" in lib and "страна использует" in lib
+    assert set(web_export.STATUS_DETAIL) <= set(web_export.STATUS_TEXT)
+
+
+def test_site_wording_keeps_honesty_rules():
+    """Формулировки, без которых экран вводил бы в заблуждение."""
+    text = "\n".join(p.read_text() for p in JS)
+    for phrase in ("Ретроспективная OOS-проверка", "Положение в рейтинге не равно вероятности события",
+                   "Отсутствие оценки не означает низкий риск", "не устанавливают причины будущего события",
+                   "Единого индекса кризиса здесь нет", "модель-претендент", "Это не вероятность кризиса",
+                   "Они не были публичными прогнозами того времени"):
+        assert phrase in text, phrase
+    assert "лог-шанс" in text and "процентных пункт" in text  # вклады подписаны как лог-шансы
+    assert "Math.random" not in text  # никаких случайных или «учебных» чисел
+
+
+def test_site_javascript_parses():
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("нет node — синтаксис модулей не проверен")
+    for p in JS:
+        r = subprocess.run([node, "--check", str(p)], capture_output=True, text=True)
+        assert r.returncode == 0, f"{p.name}: {r.stderr[-400:]}"
+
+
+def test_site_reads_only_exported_files(bundle):
+    """Каждый файл данных, к которому обращается сайт, есть в бандле."""
+    import re
+
+    files = set(bundle["manifest"]["files"]) | {"manifest.json"}
+    text = "\n".join(p.read_text() for p in JS)
+    fixed = set(re.findall(r'load\("([a-z_/]+\.json)"\)', text)) | set(re.findall(r'"([a-z]+\.json)"', text))
+    assert {"current.json", "countries.json", "archive.json", "manifest.json", "scorecard.json", "meta.json"} <= fixed
+    assert fixed <= files, fixed - files
+    assert {f"country/{iso}.json" for iso in bundle["rows"]} <= files
+    for rib in ("war25", "fxa"):
+        assert f"oos/{rib}.json" in files
+        for y in bundle["load"](f"oos/{rib}.json")["years"]:
+            assert f"oos/{rib}/{y['release']}.json" in files
