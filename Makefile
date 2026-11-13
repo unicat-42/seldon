@@ -15,7 +15,7 @@
 #                   (`network_features`, `compare_network`), критическое замедление (`econ_csd`,
 #                   `war_csd`) и сводный отбор кандидатов в витрину (`select_showcase`; ≈ 30 минут)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
-#   make party      исследование «идеология и смена партии у руля» (`party_study`; ≈ 25 минут;
+#   make party      исследование «идеология и смена партии у руля» (`party_study`, затем `democ_fx`; ≈ 60 минут;
 #                   нужны `make all`, `make variants`, `download gli`, `download vparty`); вне конвейера
 #   make risk       пересобрать только таблицу риска (нужны готовые таблицы `make all`)
 #   make test       автотесты на утечки будущего (секунды)
@@ -115,6 +115,8 @@ replicate:
 # Исследование вне боевого конвейера: только читает его таблицы, пишет reports/party_*.csv.
 party:
 	$(RUN) party_study
+	$(RUN) download vdem_vintages
+	$(RUN) democ_fx
 
 risk:
 	$(RUN) risk_table
