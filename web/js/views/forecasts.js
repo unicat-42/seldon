@@ -84,7 +84,7 @@ export async function forecasts(el, _parts, q, { samePage }) {
       <div><h1>Прогнозы по странам</h1><p>Выберите событие для сравнения. Вероятности по другим типам кризисов останутся рядом для сравнения.</p></div>
       <div class="ctl"><span>Выпуск</span><select class="field" id="rel" aria-label="Выпуск">${releaseList().map((r) => `<option value="${r.id}" ${r.id === rel.id ? "selected" : ""}>${esc(r.label)}</option>`).join("")}</select></div>
     </div>
-    <div class="ctx">${rel.archived ? `Выпуск ${dateRu(rel.id)} · опубликован ${dateRu(rel.published)}` : `${esc(rel.label)} · ещё не заморожен как публичный выпуск; последний публичный — ${dateRu(S.current.release.last_public_vintage)}`}</div>
+    <div class="ctx">${rel.archived ? `Выпуск ${dateRu(rel.id)}, опубликован ${dateRu(rel.published)}.` : `${esc(rel.label)}, ещё не заморожен как публичный выпуск. Последний публичный — ${dateRu(S.current.release.last_public_vintage)}.`}</div>
 
     <div class="controls" style="margin-top:20px">
       <div class="ctl"><span>Сравниваем</span><div class="seg" role="group" aria-label="Сравниваем" id="dom">${Object.keys(DOMAIN).map((d) => `<button data-v="${d}" aria-pressed="${d === domain}" ${EVENTS[d].some((e) => rel.contexts[e]) ? "" : "disabled"}>${DOMAIN[d]}</button>`).join("")}</div></div>
@@ -239,7 +239,7 @@ async function p4(rel, sel, carried) {
         : `<circle data-id="${p.id}" class="${p.id === sel ? "sp-sel" : p.ps ? "sp-ps" : "sp-dot"}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${p.id === sel ? 5.5 : 4}" style="cursor:pointer"><title>${esc(nameOf(p.id))}</title></circle>`)).join("")}
       ${trail}
       ${s ? `<text class="sp-name" x="${Math.min(X(s.x) + 9, W - 150)}" y="${Y(s.y) - 9}">${esc(nameOf(s.id))}</text>` : ""}
-      <text class="hp-axis" x="${(W + L) / 2}" y="${H - 8}" text-anchor="middle">Вероятность годового обвала курса, % · ${esc(cx.target_period)} · шкала растянута у нуля</text>
+      <text class="hp-axis" x="${(W + L) / 2}" y="${H - 8}" text-anchor="middle">Вероятность годового обвала курса, %, ${esc(cx.target_period)} (шкала растянута у нуля)</text>
       <text class="hp-axis" transform="translate(14 ${(H - B + T) / 2}) rotate(-90)" text-anchor="middle">Текущее валютное давление, σ · ${esc(dateRu(cs.as_of.split(" … ")[0]))} – ${esc(dateRu(cs.as_of.split(" … ").pop()))}</text>
     </svg>
     <div class="legend" style="margin-top:8px"><span><svg viewBox="0 0 12 12" style="width:12px"><circle class="sp-dot" cx="6" cy="6" r="4"/></svg>страна мира</span>
@@ -247,8 +247,8 @@ async function p4(rel, sel, carried) {
       <span><svg viewBox="0 0 12 12" style="width:12px"><circle class="sp-sel" cx="6" cy="6" r="4.5"/></svg>выбранная страна</span>
       ${capped ? `<span><svg viewBox="0 0 12 12" style="width:12px"><path class="sp-dot" d="M1.5 10L10.5 10L6 2Z"/></svg>давление выше +${y1} σ (${capped}): отметка у верхней кромки</span>` : ""}
       <span>все точки одного размера — третья величина размером не кодируется</span></div>
-    ${s ? `<div class="plate fx" style="margin-top:14px"><b>${esc(nameOf(s.id))}.</b> Годовой обвал ${esc(cx.target_period)}: <span class="num">${pct(s.x)}</span> · давление на ${dateRu(row.fx_as_of)}: <span class="num">${num(s.y, 1)} σ</span>
-        · месячный обвал, 12 месяцев: <span class="num">${row.est.fxm?.p !== undefined ? pct(row.est.fxm.p) : "нет оценки"}</span>. ${esc(note)}
+    ${s ? `<div class="plate fx" style="margin-top:14px"><b>${esc(nameOf(s.id))}.</b> Годовой обвал ${esc(cx.target_period)}: <span class="num">${pct(s.x)}</span>; давление на ${dateRu(row.fx_as_of)}: <span class="num">${num(s.y, 1)} σ</span>;
+        скачок курса за месяц, на 12 месяцев: <span class="num">${row.est.fxm?.p !== undefined ? pct(row.est.fxm.p) : "нет оценки"}</span>. ${esc(note)}
         <a href="${href("country/" + s.id, carried)}">Открыть страну</a></div>`
       : `<p class="small faint" style="margin-top:10px">На поле ${pts.length} стран: те, у кого есть и годовая оценка, и свежее давление. Давление — наблюдение в стандартных отклонениях, не вероятность.</p>`}
   </section>`;

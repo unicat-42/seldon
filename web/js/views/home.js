@@ -55,7 +55,7 @@ export async function home(el, _parts, q) {
     <div class="grid">
       <div class="c8 ribbon">
         <div class="ctx" style="margin-bottom:8px"><span class="tag dark">Проверка на прошлом, вслепую</span>
-          &nbsp; событие: <b>${esc(rib.event)}</b> · горизонт ${esc(rib.horizon)} · выпуски ${rib.years[0].as_of.slice(0, 4)}–${rib.years.at(-1).as_of.slice(0, 4)}</div>
+          &nbsp; Событие: <b>${esc(rib.event)}</b>. Прогноз на ${esc(rib.horizon)} вперёд, выпуски ${rib.years[0].as_of.slice(0, 4)}–${rib.years.at(-1).as_of.slice(0, 4)}.</div>
         ${ribbon(rib, sel)}
         <p class="small faint" style="margin-top:6px">Положение в рейтинге не равно вероятности события. Год слева — год выпуска: оценка сделана на 1 января этого года по данным, доступным к этой дате.</p>
       </div>
@@ -156,9 +156,9 @@ function lensStrip(rel, ev, dom, lens) {
   const lensState = lens && !pts.some((p) => p.id === lens) ? rel.rows.get(lens).est[ev]?.status : null;
   return `<div class="strip dom-${dom}">
     <h3><span class="dot"></span>${esc(c.title)}</h3>
-    <div class="ctx">событие: <b>${esc(c.event)}</b> · дата прогноза: ${dateRu(c.as_of)} · период прогноза <b>${esc(c.target_period)}</b> · в мировой выборке ${pts.length} стран</div>
+    <div class="ctx">Событие: <b>${esc(c.event)}</b>. Период прогноза: <b>${esc(c.target_period)}</b>, дата прогноза: ${dateRu(c.as_of)}. В мировой выборке ${pts.length} стран.</div>
     ${strip(pts, { max, sel: lens })}
     ${lensState ? `<p class="small" style="margin-top:4px">${esc(nameOf(lens))}: ${state(lensState, { link: href("forecasts", { domain: "war", event: "war25_cont" }) })}</p>` : ""}
-    <p class="small muted num" style="margin-top:6px">С оценкой: ${ps.ok.length} из 15 · не оценивается: ${ps.na.length} · нет оценки: ${ps.no.length}${why ? ` <span class="faint">(${esc(why)})</span>` : ""}${ps.grp.length ? ` · идёт конфликт, оценивается продолжение: ${ps.grp.length} <span class="faint">(${esc(ps.grp.map(([i]) => nameOf(i)).join(", "))})</span>` : ""}</p>
+    <p class="small muted num" style="margin-top:6px">С оценкой ${ps.ok.length} из 15 стран.${why ? ` Без оценки ${ps.na.length + ps.no.length}: <span class="faint">${esc(why)}.</span>` : ""}${ps.grp.length ? ` Идёт конфликт, оценивается продолжение: <span class="faint">${esc(ps.grp.map(([i]) => nameOf(i)).join(", "))}.</span>` : ""}</p>
   </div>`;
 }

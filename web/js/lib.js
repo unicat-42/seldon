@@ -139,7 +139,7 @@ export function archiveWindow(v, m) {
 
 export function releaseList() {
   const cur = S.current.release;
-  return [{ id: "current", label: `Текущий расчёт · ${dateRu(cur.calculated)}`, short: "текущий расчёт" },
+  return [{ id: "current", label: `Текущий расчёт от ${dateRu(cur.calculated)}`, short: "текущий расчёт" },
     ...[...S.archive.vintages].reverse().map((v) => ({ id: v.vintage, label: `Выпуск ${dateRu(v.vintage)}`, short: dateRu(v.vintage) }))];
 }
 
@@ -147,7 +147,7 @@ export function releaseList() {
 export function release(id = "current") {
   if (id === "current" || !S.archive.vintages.some((v) => v.vintage === id)) {
     const c = S.current;
-    return { id: "current", archived: false, label: `Текущий расчёт · ${dateRu(c.release.calculated)}`, published: null,
+    return { id: "current", archived: false, label: `Текущий расчёт от ${dateRu(c.release.calculated)}`, published: null,
       calculated: c.release.calculated, note: c.release.note, rows: new Map(c.rows.map((r) => [r.iso3, r])), contexts: c.contexts,
       baseLabel: "Обычный уровень: частота события в обучающей выборке" };
   }
@@ -286,8 +286,8 @@ export function ctxLine(rel, ev, { asOf = null } = {}) {
   if (!c) return "";
   const when = asOf ?? c.as_of;
   const cut = c.as_of_per_country && !asOf ? `даты прогноза по странам: ${dateRu(when.split(" … ")[0])} – ${dateRu(when.split(" … ").pop())}` : `дата прогноза: ${dateRu(when)}`;
-  const period = c.target_period ? ` · период прогноза <b>${esc(c.target_period)}</b>` : "";
-  return `<div class="ctx">${esc(rel.label)} · ${esc(cut)} · событие: <b>${esc(c.event)}</b>${period}</div>`;
+  const period = c.target_period ? ` Период прогноза: <b>${esc(c.target_period)}</b>.` : "";
+  return `<div class="ctx">Событие: <b>${esc(c.event)}</b>.${period} ${esc(rel.label)}, ${esc(cut)}.</div>`;
 }
 
 // ---------------------------------------------------------------- графики

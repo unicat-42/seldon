@@ -61,7 +61,7 @@ export async function country(el, parts, q) {
         <a class="btn ghost" href="${href("forecasts", { ...back, sel: iso })}">Сравнить страны</a>
       </div>
     </div>
-    <div class="ctx">${esc(rel.label)}${rel.archived ? ` · опубликован ${dateRu(rel.published)}` : " · не заморожен как публичный выпуск"} · ${esc(S.byIso.get(iso).en)} · ${iso}</div>
+    <div class="ctx">${esc(rel.label)}${rel.archived ? `, опубликован ${dateRu(rel.published)}` : ", ещё не заморожен как публичный выпуск"}. ${esc(S.byIso.get(iso).en)}, ${iso}</div>
   </section>
   <nav class="anchors" aria-label="Разделы досье"><a href="#est" data-jump>Оценки</a><a href="#hist" data-jump>История</a><a href="#fact" data-jump>Факторы</a><a href="#prov" data-jump>Данные</a></nav>
 
@@ -239,7 +239,7 @@ function factors(d, key) {
       <div><div class="eyebrow">Сдвигает оценку вверх</div>${side(main.filter((f) => f.contrib > 0))}</div></div>
     <p class="small muted" style="margin-top:12px;max-width:80ch">Показаны ${main.length} из ${fs.length} признаков модели с наибольшим вкладом. Это описание расчёта, а не причин будущего события.</p>
     <details class="more" style="margin-top:14px"><summary>Все признаки и величина вклада</summary>
-    <div class="ctx" style="margin:10px 0"><b>${esc(b.model)}</b> · оценка <b class="num">${pct(b.p)}</b>, интервал <span class="num">${num(100 * b.lo, 1)}–${num(100 * b.hi, 1)} %</span> · обучение: ${b.n_train.toLocaleString("ru-RU")} наблюдений, обычный уровень ${pct(b.base_rate)}</div>
+    <div class="ctx" style="margin:10px 0">Модель: <b>${esc(b.model)}</b>. Вероятность <b class="num">${pct(b.p)}</b>, диапазон неопределённости <span class="num">${num(100 * b.lo, 1)}–${num(100 * b.hi, 1)} %</span>. Обучение: ${b.n_train.toLocaleString("ru-RU")} наблюдений, обычный уровень ${pct(b.base_rate)}.</div>
     <table class="factors"><thead><tr><th scope="col">Признак</th><th scope="col">← снижает оценку · повышает →</th><th scope="col">Вклад, лог-шансы</th><th scope="col">Наблюдение</th><th scope="col">Дата наблюдения</th></tr></thead><tbody>
     ${fs.map((f) => `<tr class="${f.value === null ? "none" : ""}"><td>${esc(f.label)}</td><td class="bar">${factorBar(f.contrib, maxAbs)}</td><td class="num">${signed(f.contrib, 2)}</td>
       <td class="num obs">${obs(f)}</td><td class="dt">${when(f)}</td></tr>`).join("")}

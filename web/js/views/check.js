@@ -37,7 +37,7 @@ export async function check(el, _parts, q) {
       <div class="ctl"><span>Горизонт</span><span class="small">${esc(c.horizon)}</span></div>
     </div>
     <div class="plate ${c.domain}" style="margin-top:16px"><span class="tag dark">Проверка на прошлом, вслепую</span>&nbsp; <b>${esc(c.title)}.</b>
-      ${esc(c.samples[sample])} · ${esc(cell.years)} · ${cell.n.toLocaleString("ru-RU")} оценок${blind ? "" : `, из них с наступившим событием — ${cell.events.toLocaleString("ru-RU")} (${pct(cell.base_rate)})`}. Модель: ${esc(c.model)}.
+      ${esc(c.samples[sample])}, ${esc(cell.years)}. Всего ${cell.n.toLocaleString("ru-RU")} оценок${blind ? "" : `, из них с наступившим событием — ${cell.events.toLocaleString("ru-RU")} (${pct(cell.base_rate)})`}. Модель: ${esc(c.model)}.
       ${key === "fxm_live" ? " Новая модель на испытании: проверяется рядом с основной и её не заменяет." : ""}</div>
   </section>
 
@@ -180,7 +180,7 @@ function topk(list) {
       return `<text class="hp-title" x="0" y="${cy + 4}">первые ${t.k}</text><rect x="${L}" y="${cy - 7}" width="${W - L - R}" height="14" fill="var(--paper-3)"/>
         <rect x="${L}" y="${cy - 7}" width="${x(t.share) - L}" height="14" fill="var(--dom)"/><line x1="${x(t.random)}" x2="${x(t.random)}" y1="${cy - 11}" y2="${cy + 11}" stroke="var(--ink)" stroke-width="1.5"/>
         <text class="hp-axis" x="${W - R + 8}" y="${cy + 4}">${pct(t.share)}</text>`; }).join("")}
-    <text class="hp-axis" x="${L}" y="${list.length * rowH + 18}">${list.map((t) => `первые ${t.k}: ${t.caught} из ${t.events}, случайно — ${pct(t.random)}`).join(" · ")}</text>
+    <text class="hp-axis" x="${L}" y="${list.length * rowH + 18}">${list.map((t) => `первые ${t.k}: ${t.caught} из ${t.events}, случайно — ${pct(t.random)}`).join("; ")}</text>
   </svg>`;
 }
 

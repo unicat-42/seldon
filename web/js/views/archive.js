@@ -38,7 +38,7 @@ function vintageBlock(v) {
   const withRecs = S.countries.filter((c) => v.countries[c.iso3]);
   return `<section class="section" id="v-${v.vintage}">
     <div class="section-head"><div><h2>Выпуск ${dateRu(v.vintage)}</h2>
-      <p>Опубликован ${dateRu(v.published)} · ${v.rows} стран · ${esc(v.origin ?? "")}</p></div>
+      <p>Опубликован ${dateRu(v.published)}, стран: ${v.rows}.${v.origin ? " " + esc(v.origin[0].toUpperCase() + v.origin.slice(1)) + "." : ""}</p></div>
       <a class="btn ghost" href="${href("forecasts", { release: v.vintage })}">Открыть оценки выпуска</a></div>
     <div class="tbl-scroll"><table class="tbl">
       <thead><tr><th scope="col">Событие</th><th scope="col">Модель</th><th scope="col">Дата прогноза</th><th scope="col">Период прогноза</th><th scope="col">Стран</th><th scope="col">Интервал</th><th scope="col">Состояние проверки</th></tr></thead>
@@ -186,7 +186,7 @@ function cardSvg(r) {
   const col = { war: "#b0563a", fx: "#456a8a", bank: "#746689" }[r.dom];
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" font-family="Georgia, serif">
   <rect width="1000" height="560" fill="#f6f1e6"/><rect width="1000" height="8" fill="${col}"/>
-  <text x="56" y="70" font-size="20" fill="#57524a" font-family="Arial, sans-serif">Селдон · запись прогноза · ${t(r.kindLabel)}</text>
+  <text x="56" y="70" font-size="20" fill="#57524a" font-family="Arial, sans-serif">Селдон, запись прогноза: ${t(r.kindLabel)}</text>
   <text x="56" y="130" font-size="44" font-weight="600" fill="#25231f">${t(nameOf(r.iso))} · ${t(r.title)}</text>
   ${ev.map((l, i) => `<text x="56" y="${176 + i * 26}" font-size="19" fill="#57524a" font-family="Arial, sans-serif">${t(l)}</text>`).join("")}
   <text x="56" y="350" font-size="96" font-weight="600" fill="#25231f">${t(pct(r.p))}</text>
