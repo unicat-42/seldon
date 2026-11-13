@@ -186,6 +186,16 @@ select.field { min-width: 0; padding-right: 26px; }
 .now-row:last-child { border-bottom: 1px solid var(--rule); }
 .now-row h3 { display: flex; align-items: center; }
 .now-row .cov { margin-top: 8px; font-size: 13px; color: var(--ink-2); }
+.now4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--rule-2); }
+.now-card { padding: 16px 16px 18px; border-right: 1px solid var(--rule-2); border-top: 3px solid var(--dom); display: flex; flex-direction: column; gap: 10px; }
+.now-card:last-child { border-right: 0; }
+.now-card h3 { font-size: 18px; } .now-card .period { font: 400 13px var(--sans); color: var(--ink-2); white-space: nowrap; }
+.now-card ol.top { list-style: none; margin: 0; padding: 0; }
+.now-card ol.top li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.now-card ol.top a { text-decoration: none; font-weight: 500; } .now-card ol.top a:hover { text-decoration: underline; }
+.now-card ol.top .num { font-weight: 500; }
+.now-card .ps { margin-top: 2px; } .now-card .ps ol.top li { border-bottom: 0; padding-bottom: 0; }
+.now-card .links { margin-top: auto; padding-top: 6px; gap: 10px 14px; font-size: 13px; }
 .strip { margin-top: 26px; }
 .strip h3 { font: 500 15px var(--sans); display: flex; align-items: center; }
 .strip svg { display: block; width: 100%; height: auto; overflow: visible; margin-top: 4px; }
@@ -259,6 +269,7 @@ ul.plain li { margin: 4px 0; }
   .anchors { top: 0; position: static; overflow-x: auto; white-space: nowrap; }
   .grid { display: block; } .grid > * + * { margin-top: 28px; }
   .now-row, .sub-block, .two, .method3, .cov3, .prov, .states-legend { grid-template-columns: 1fr; }
+  .now4 { grid-template-columns: 1fr 1fr; } .now-card:nth-child(2n) { border-right: 0; } .now-card:nth-child(n+3) { border-top-width: 3px; }
   .cov3 > div { border-right: 0; border-bottom: 1px solid var(--rule-2); }
   .inspector { position: static; }
   h1 { font-size: 30px; } h2 { font-size: 23px; }
@@ -292,6 +303,7 @@ tr.exp { display: none; }
   .insp-side { display: none; }
   .est { grid-template-columns: 58px minmax(50px, 1fr); }
   .now-row { gap: 10px; padding: 16px 0; }
+  .now4 { grid-template-columns: 1fr; } .now-card { border-right: 0; }
   .banner { flex-direction: column; align-items: flex-start; }
   .ribbon, .hist, #p4, #fact, .strip, .chart, details { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .strip svg { min-width: 620px; } .card .strip svg { min-width: 0; } .chart > svg { min-width: 500px; }

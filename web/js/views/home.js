@@ -1,5 +1,5 @@
 // Главная: H1 введение, H2 лента проверки прошлым, H3 текущие оценки, H4 региональная линза, H5 метод.
-import { S, load, release, esc, pct, pctRange, dateRu, href, nameOf, isPS, state, stateText, strip, stripLegend, ribbon,
+import { S, load, release, esc, pct, pctRange, dateRu, href, nameOf, isPS, state, stateText, strip, stripLegend, ribbon, odds,
   niceMax, DOMAIN_FULL, setQuery, low } from "../lib.js";
 
 const RIBBONS = { war25: "Начало войны", fxa: "Обвал курса за год" };
@@ -30,11 +30,25 @@ export async function home(el, _parts, q) {
     </div>
   </section>
 
-  <section class="section dom-${DOM[contour]}" id="past" style="padding-top:30px">
+  <section class="section" id="now" style="padding-top:30px">
+    <div class="section-head">
+      <div><h2>Что модель оценивает сейчас</h2><p>По три страны с самой высокой вероятностью в каждом событии. У каждого события своя модель и своя шкала. Единого индекса кризиса здесь нет.</p></div>
+      <div class="ctx" style="text-align:right">Последний публичный выпуск: <b>${lastV ? dateRu(lastV) : "нет"}</b><br>Текущий расчёт: ${dateRu(cur.release.calculated)}, ещё не заморожен</div>
+    </div>
+    <div class="now4">
+      ${nowCard(rel, "war25_onset", "war", "Начало войны", `<a href="${href("forecasts", { domain: "war", event: "war25_cont" })}">Продолжение идущих войн (${cov.war.at_war})</a>`)}
+      ${nowCard(rel, "fxa", "fx", "Обвал курса за год")}
+      ${nowCard(rel, "fxm", "fx", "Резкий скачок курса за месяц")}
+      ${nowCard(rel, "bank", "bank", "Банковский кризис")}
+    </div>
+    <p class="small muted" style="margin-top:14px;max-width:86ch">Высокая вероятность — не предсказание: даже при 30 % событие чаще не случается, чем случается. Страны без числа не оценены, и это не значит «спокойно»: всего в витрине ${S.countries.length} государств.</p>
+  </section>
+
+  <section class="section dom-${DOM[contour]}" id="past">
     <div class="section-head">
       <div>
-        <h2>Где находились будущие кризисы в прогнозах модели</h2>
-        <p>Каждая строка — исторический выпуск. Страны расположены от более высокой оценки к более низкой; тёмные отметки показывают наступившие события.</p>
+        <h2>Можно ли этому верить?</h2>
+        <p>Так модель расставляла страны в прошлые годы. Каждая строка — год, каждая отметка — страна. Чёрная точка — кризис случился; чем она левее, тем выше была вероятность.</p>
       </div>
       <div class="seg" role="group" aria-label="Событие">${Object.entries(RIBBONS).map(([k, t]) => `<button data-oos="${k}" aria-pressed="${k === contour}">${t}</button>`).join("")}</div>
     </div>
@@ -51,25 +65,6 @@ export async function home(el, _parts, q) {
     <div class="cases"><span class="small faint">Разобрать исторический случай:</span>
       ${cur.cases.map((c) => `<a class="chip" href="${href("", { oos: c.contour, y: c.release, id: c.iso3 })}" ${sel && c.contour === contour && sel.y === c.release && sel.id === c.iso3 ? 'aria-current="true"' : ""}>${esc(c.title)}</a>`).join("")}
     </div>
-  </section>
-
-  <section class="section" id="now">
-    <div class="section-head">
-      <div><h2>Что модель оценивает сейчас</h2><p>В каждом разделе — своё событие, горизонт и покрытие. Единого индекса кризиса здесь нет.</p></div>
-      <div class="ctx" style="text-align:right">Последний публичный выпуск: <b>${lastV ? dateRu(lastV) : "нет"}</b><br>Текущий расчёт: ${dateRu(cur.release.calculated)}, ещё не заморожен</div>
-    </div>
-    ${nowRow("war", "Начало и продолжение оцениваются отдельно. Два порога интенсивности.",
-      `Оценены ${cov.war.estimated} стран · не оценивается ${cov.war.not_applicable} · нет оценки ${cov.war.no_estimate}`,
-      `начало — ${cov.war.at_risk} стран без войны, продолжение — ${cov.war.at_war} воюющих`,
-      [["Смотреть начало конфликта", { domain: "war", event: "war25_onset" }], ["Продолжение", { domain: "war", event: "war25_cont" }]])}
-    ${nowRow("fx", "Обвал курса за год, резкий скачок за месяц и давление на валюту сейчас.",
-      `Оценены ${cov.fx.estimated} стран · не оценивается ${cov.fx.not_applicable} · нет оценки ${cov.fx.no_estimate}`,
-      `обвал за год; скачок за месяц и давление — ${cov.fx.monthly} стран`,
-      [["Смотреть валютные оценки", { domain: "fx", event: "fxa" }]])}
-    ${nowRow("bank", "Прогноз на основе кредитного цикла и кривой доходности.",
-      `Оценены ${cov.bank.estimated} стран · не оценивается ${cov.bank.not_applicable} · нет оценки ${cov.bank.no_estimate}`,
-      Object.entries(cov.bank.by_status).filter(([k]) => k !== "ok").map(([k, n]) => `${low(stateText(k))} — ${n}`).join(", "),
-      [["Смотреть банковские оценки", { domain: "bank", event: "bank" }]])}
   </section>
 
   <section class="section" id="lens">
@@ -128,11 +123,23 @@ function side(rib, contour, sel) {
   </div>`;
 }
 
-function nowRow(dom, text, cov, covNote, links) {
-  return `<div class="now-row dom-${dom}">
-    <h3><span class="dot"></span>${DOMAIN_FULL[dom]}</h3>
-    <div><p>${text}</p><p class="cov num">${cov}<br><span class="faint">${esc(covNote)}</span></p></div>
-    <div class="links">${links.map(([t, q], i) => `<a class="${i ? "" : "btn ghost sm"}" href="${href("forecasts", q)}">${t}</a>`).join("")}</div>
+/** Карточка «сейчас»: три страны с самой высокой вероятностью, обычный уровень и первая из постсоветских. */
+function nowCard(rel, ev, dom, title, extra = "") {
+  const c = rel.contexts[ev];
+  if (!c) return "";
+  const rows = [...rel.rows].filter(([, r]) => r.est[ev]?.p !== undefined).map(([iso, r]) => ({ iso, e: r.est[ev], ps: r.post_soviet })).sort((a, b) => a.e.rank - b.e.rank || b.e.p - a.e.p);
+  const line = (x, rank = false) => `<li><a href="${href("country/" + x.iso)}">${esc(nameOf(x.iso))}</a><span class="num">${pct(x.e.p)}${rank ? ` <span class="faint">· ${x.e.rank}-е место</span>` : ""}</span></li>`;
+  const base = rows.find((x) => x.e.base_rate != null)?.e.base_rate;
+  const ps = rows.find((x) => x.ps);
+  const period = /^\d/.test(c.target_period ?? "") && !/месяц/.test(c.target_period) ? c.target_period : `на ${c.horizon}`;
+  return `<div class="now-card dom-${dom}">
+    <div class="eyebrow">${esc(DOMAIN_FULL[dom])}</div>
+    <h3>${esc(title)} <span class="period num">· ${esc(period)}</span></h3>
+    <ol class="top">${rows.slice(0, 3).map((x) => line(x)).join("")}</ol>
+    ${base != null ? `<p class="small muted">Обычный уровень — ${odds(base)}</p>` : ""}
+    <div class="ps"><div class="small muted">Из 15 постсоветских выше всех:</div>
+      ${ps ? `<ol class="top">${line(ps, true)}</ol>` : `<p class="small">ни одна не оценена: для них нет данных, на которых построена модель</p>`}</div>
+    <div class="links"><a class="btn ghost sm" href="${href("forecasts", { domain: dom, event: ev })}">Весь список (${rows.length})</a>${extra}</div>
   </div>`;
 }
 
