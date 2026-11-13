@@ -1044,7 +1044,7 @@ def test_future_blindness_fx_contagion_features():
     bad = _contagion(_future_struct(s, as_of), _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of))
     past = lambda d: d[d.month <= as_of].sort_values(["iso3", "month"])  # noqa: E731
     now = clean[clean.month == as_of]
-    assert all(now[f].nunique() > 1 for f in ("pshock3", "pshock12", "pmax6", "pshock_peg6", "par_prem"))
+    assert all(now[f].nunique() > 1 for f in ("pshock3", "pshock12", "pmax6", "pshock_peg6", "par_prem", "pgap24", "pkey24", "pkey_peg24"))
     _same(past(clean), past(bad), contagion_features.COLUMNS)
     assert _differs(clean[clean.month > as_of], bad[bad.month > as_of], contagion_features.COLUMNS), "контроль: порча будущего обязана быть видна"
 
@@ -1064,20 +1064,21 @@ def test_available_from_fx_contagion_features(as_of):
     # контроль: без лагов та же порча признаки меняет
     no_lag = ContagionLags(trade_source=None, parallel_months=0)
     assert _differs(row(_contagion(s, c, no_lag)), row(_contagion(s, bad_c, no_lag)), ["pshock3", "pmax6"])
+    assert _differs(row(_contagion(s, c, no_lag)), row(_contagion(s, bad_c, no_lag)), ["pgap24", "pkey24"])
     assert _differs(row(_contagion(s, c, no_lag)), row(_contagion(s, bad_c, no_lag)), ["par_prem"])
 
 
 def test_contagion_sees_partner_crash_same_month_not_earlier():
     """Смысл признака: главный партнёр обесценился на 50 % в месяце m — у страны с неподвижным
     курсом `pshock3` и `pmax3` положительны в m (и только с m), у самого партнёра — отрицательны."""
-    months = pd.period_range("2000-01", "2006-12", freq="M")
+    months = pd.period_range("2000-01", "2008-12", freq="M")
     crash = pd.Period("2005-06", freq="M")
     fx = pd.concat([pd.DataFrame({"iso3": "AAA", "month": months, "fx": 10.0}),
                     pd.DataFrame({"iso3": "BBB", "month": months, "fx": np.where(months >= crash, 15.0, 10.0)}),
                     pd.DataFrame({"iso3": "CCC", "month": months, "fx": 5.0})], ignore_index=True)
     eur = pd.DataFrame({"month": months, "eur_usd": 1.0})
-    trade = pd.DataFrame([("AAA", "BBB", y, 80.0, 0.0) for y in range(1996, 2007)] + [("AAA", "CCC", y, 20.0, 0.0) for y in range(1996, 2007)]
-                         + [("BBB", "AAA", y, 80.0, 0.0) for y in range(1996, 2007)], columns=["iso3", "partner", "year", "exports", "imports"])
+    trade = pd.DataFrame([("AAA", "BBB", y, 80.0, 0.0) for y in range(1996, 2009)] + [("AAA", "CCC", y, 20.0, 0.0) for y in range(1996, 2009)]
+                         + [("BBB", "AAA", y, 80.0, 0.0) for y in range(1996, 2009)], columns=["iso3", "partner", "year", "exports", "imports"])
     struct = pd.DataFrame({"iso3": "AAA", "month": months, "peg_share12": 1.0, "ctot_d12": 0.0, "ctot_missing": 0})
     t = contagion_features.build_contagion(fx, eur, trade, struct).set_index(["iso3", "month"])
     assert t.loc[("AAA", crash - 1), "pshock3"] == 0 and t.loc[("AAA", crash - 1), "pmax3"] == 0
@@ -1085,6 +1086,14 @@ def test_contagion_sees_partner_crash_same_month_not_earlier():
     assert np.isclose(t.loc[("AAA", crash), "pmax3"], np.log(1.5)) and np.isclose(t.loc[("AAA", crash), "pshock_peg3"], 0.8 * np.log(1.5))
     assert np.isclose(t.loc[("AAA", crash + 3), "pshock3"], 0) and np.isclose(t.loc[("AAA", crash + 3), "pshock6"], 0.8 * np.log(1.5))
     assert t.loc[("BBB", crash), "pshock3"] < 0 and t.loc[("BBB", crash), "pmax3"] == 0
+    # накопленный шок: до обвала ноль; после — держится, когда окна изменений его уже забыли
+    assert t.loc[("AAA", crash - 1), "pgap24"] == 0 and t.loc[("AAA", crash - 1), "pkey24"] == 0
+    late = crash + 15
+    assert np.isclose(t.loc[("AAA", late), "pshock12"], 0)
+    assert np.isclose(t.loc[("AAA", late), "pgap24"], 0.8 * np.log(1.5)) and np.isclose(t.loc[("AAA", late), "pkey24"], np.log(1.5))
+    assert np.isclose(t.loc[("AAA", late), "pkey_peg24"], np.log(1.5))
+    assert np.isclose(t.loc[("AAA", crash + 30), "pgap24"], 0), "через 24 месяца нижняя точка окна — уже новый уровень"
+    assert t.loc[("BBB", late), "pgap24"] == 0 and t.loc[("BBB", late), "pkey24"] == 0
 
 
 @pytest.mark.parametrize("h", [3, 12])
@@ -1105,7 +1114,7 @@ def test_future_blindness_fx_contagion_monthly(h):
            _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]),
            _future_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of),
            _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of, gdp_from=as_of.year - 1))
-    for name in ("full", "par"):
+    for name in ("full", "par", "struct_level"):
         clean = run(raw, annual, war, s, c, name)
         assert clean.logit.notna().all() and clean.logit.nunique() > 1
         _same(clean, run(*bad, name), ["logit", "C", *contagion_features.COLUMNS, "gdp_pc_log"])

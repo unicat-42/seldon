@@ -18,7 +18,10 @@
                 (не поощряется и не штрафуется), доход учтён явно через ВВП на душу;
     contagion   ref + заражение по торговым связям;
     full        clean + заражение;
-    par         ref + премия параллельного курса (покрытие — см. `sources/parallel.py`).
+    par         ref + премия параллельного курса (покрытие — см. `sources/parallel.py`);
+    level       ref + накопленный шок партнёров (уровень от нижней точки за 24 месяца);
+    contagion_level   contagion + накопленный шок;
+    struct_level      struct + накопленный шок.
 Для горизонта h метка — `deval15` в месяцы m+1…m+h; правило «тишины» то же, что у боевой
 модели. Обучение — метки, известные к концу декабря T−1 (m + h ≤ декабрь T−1), тест — все
 месяцы года T, T = 1996…2025; C — по времени внутри обучения (`econ_struct.choose_C_kr`).
@@ -64,6 +67,10 @@ SETS: dict[str, list[str]] = {
     "contagion": [*cf.CONT, *cf.FLAGS],
     "full": [*CLEAN, *cf.CONT, *cf.FLAGS],
     "par": [*cf.PAR_CONT, *cf.PAR_FLAGS],
+    # накопленный шок (уровень от нижней точки за 24 месяца) — развилка 3 отчёта 4.1
+    "level": [*cf.LEVEL, *cf.FLAGS],
+    "contagion_level": [*cf.CONT, *cf.LEVEL, *cf.FLAGS],
+    "struct_level": [*S_CONT, *S_FLAGS, *cf.LEVEL, *cf.FLAGS],
 }
 NAMES = list(SETS)
 
@@ -139,7 +146,7 @@ def run(p: pd.DataFrame, h: int, names: list[str] = NAMES) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def coefficients(p: pd.DataFrame, h: int, names=("full", "struct", "struct_gdp")) -> pd.DataFrame:
+def coefficients(p: pd.DataFrame, h: int, names=("full", "struct", "struct_gdp", "level", "struct_level")) -> pd.DataFrame:
     """Стандартизованные коэффициенты в последней точке обучения."""
     as_of = pd.Period(f"{econ_kr.LAST_EVAL_YEAR - 1}-12", freq="M")
     known = p[label_known(p.month, as_of, h) & p.evaluable]
@@ -157,7 +164,7 @@ def univariate(p: pd.DataFrame, h: int) -> pd.DataFrame:
     только строки, где она есть."""
     d = p[p.evaluable & (p.month.dt.year >= econ_kr.FIRST_EVAL_YEAR)]
     rows = []
-    for f in [*cf.CONT, *cf.PAR_CONT, "reer_peg", "peg_share12"]:
+    for f in [*cf.CONT, *cf.LEVEL, *cf.PAR_CONT, "reer_peg", "peg_share12"]:
         flag = "par_missing" if f in cf.PAR_CONT else ("reer_missing" if f == "reer_peg" else "cont_missing")
         x = d[d[flag] == 0] if flag in d else d
         for sample, mask in (("мир", x.iso3.notna()), ("постсоветские", x.iso3.isin(POST_SOVIET_ISO3)), ("привязки", x.peg_share12 >= 0.8)):

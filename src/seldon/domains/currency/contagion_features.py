@@ -31,6 +31,15 @@
                     упали (общий сырьевой шок); `ctot_d12` — с лагом набора МВФ, как в 3.3.
     cont_missing    флаг пропуска (признаки тогда = 0).
 
+Накопленный шок (уровень, а не изменение; `LEVEL_WINDOW` = 24 месяца). Изменение за k месяцев
+гаснет, как только обвал партнёра выходит из окна, даже если разрыв не закрыт (рубль упал в
+декабре 2014, тенге отпустили в августе 2015). Уровень держится, пока разрыв не отыгран:
+    pgap24          N(m) − min N за последние 24 месяца, где N — накопленная сумма месячных
+                    «недообесценений» Σ_j w_ij · dl_j(1) − dl_i(1): насколько партнёры
+                    подешевели относительно страны от нижней точки и ещё не отыграли;
+    pkey24          то же для ключевого партнёра (w_ij ≥ `KEY_SHARE`), максимум по ним;
+    pgap_peg24, pkey_peg24   × peg_share12.
+
 Параллельный курс (`sources/parallel.py`; покрытие — 1946–1998 и 2019–2025, между ними дыра):
     par_prem        ln(1 + премия параллельного курса к официальному), обрезана до [−0,5; 3];
                     значение месяца m − 1 (`parallel_premium`);
@@ -57,10 +66,13 @@ MIN_COVER = 0.5      # минимум покрытой курсами доли �
 DL_CLIP = (-1.0, 1.5)
 PAR_CLIP = (-0.5, 3.0)
 
+LEVEL_WINDOW, LEVEL_MIN_MONTHS = 24, 12
+
 CONT = [f"{n}{k}" for k in K_WINDOWS for n in ("pshock", "pmax", "pshock_peg")] + ["pshock_ctot"]
+LEVEL = ["pgap24", "pkey24", "pgap_peg24", "pkey_peg24"]  # пропуск — тот же флаг `cont_missing`
 FLAGS = ["cont_missing"]
 PAR_CONT, PAR_FLAGS = ["par_prem", "par_d6"], ["par_missing"]
-COLUMNS = [*CONT, *FLAGS, *PAR_CONT, *PAR_FLAGS]
+COLUMNS = [*CONT, *LEVEL, *FLAGS, *PAR_CONT, *PAR_FLAGS]
 
 
 @dataclass(frozen=True)
@@ -154,8 +166,43 @@ def build_contagion(fx: pd.DataFrame, eur: pd.DataFrame, trade: pd.DataFrame, st
         for name, arr in ((f"pshock{k}", shock), (f"pmax{k}", np.clip(pmax, 0, None))):
             out[name] = pd.DataFrame(arr, index=months, columns=own).where(have_fx[own]).T.stack(future_stack=True).to_numpy()
         out.loc[out[f"pshock{k}"].isna(), f"pmax{k}"] = np.nan
+    # --- накопленный шок: уровень относительной цены от нижней точки за 24 месяца
+    d1 = currency_moves(fx, eur, 1)
+    lvl = d1.fillna(0.0).cumsum()            # «уровень» курса страны (пропуск месяца — без движения)
+    seen = d1.notna()
+    own_idx = [d1.columns.get_loc(c) for c in own]
+    inc = np.full((len(months), len(own)), np.nan)
+    pkey = np.full((len(months), len(own)), np.nan)
+    roll_min = lambda x: x.rolling(LEVEL_WINDOW + 1, min_periods=LEVEL_MIN_MONTHS).min()  # noqa: E731
+    for y in np.unique(w_year):
+        if y not in wy:
+            continue
+        rows = np.where(w_year == y)[0]
+        W = wy[y].reindex(index=own, columns=d1.columns).fillna(0.0).to_numpy()
+        D = d1.to_numpy()[rows]
+        ok = ~np.isnan(D)
+        cover = ok.astype(float) @ W.T
+        with np.errstate(divide="ignore", invalid="ignore"):
+            avg = np.where(cover >= MIN_COVER, (np.where(ok, D, 0.0) @ W.T) / cover, np.nan)
+        inc[rows] = avg - d1.reindex(columns=own).to_numpy()[rows]
+        key = W >= KEY_SHARE
+        for i in range(len(own)):
+            if not key[i].any():
+                pkey[rows, i] = 0.0
+                continue
+            rel = lvl.iloc[:, np.where(key[i])[0]].sub(lvl.iloc[:, own_idx[i]], axis=0)   # вся история ≤ m
+            up = (rel - roll_min(rel)).where(seen.iloc[:, np.where(key[i])[0]])
+            pkey[rows, i] = up.max(axis=1).to_numpy()[rows]
+    inc = pd.DataFrame(inc, index=months, columns=own)
+    n_idx = inc.fillna(0.0).cumsum()
+    gap = (n_idx - roll_min(n_idx)).where(inc.notna())
+    pkey = pd.DataFrame(pkey, index=months, columns=own).where(inc.notna())
+    for name, frame in (("pgap24", gap), ("pkey24", pkey)):
+        out[name] = frame.where(have_fx[own]).T.stack(future_stack=True).to_numpy()
     s = struct[["iso3", "month", "peg_share12", "ctot_d12", "ctot_missing"]]
     out = out.merge(s, on=["iso3", "month"], how="left")
+    for name in ("pgap", "pkey"):
+        out[f"{name}_peg24"] = out[f"{name}24"] * out.peg_share12.fillna(0)
     for k in K_WINDOWS:
         out[f"pshock_peg{k}"] = out[f"pshock{k}"].clip(lower=0) * out.peg_share12.fillna(0)
     loss = (-out.ctot_d12.where(out.ctot_missing != 1)).clip(lower=0).fillna(0)
@@ -170,14 +217,14 @@ def build_contagion(fx: pd.DataFrame, eur: pd.DataFrame, trade: pd.DataFrame, st
         b = p.assign(month=p.month + L + 6).rename(columns={"par": "par_prev"})
         out = out.drop(columns=["par_prem", "par_d6"]).merge(a, on=["iso3", "month"], how="left").merge(b, on=["iso3", "month"], how="left")
         out["par_d6"] = out.par_prem - out.par_prev
-    out = out[["iso3", "month", *CONT, *PAR_CONT]]
+    out = out[["iso3", "month", *CONT, *LEVEL, *PAR_CONT]]
     return fill(out) if filled else out.reset_index(drop=True)
 
 
 def fill(p: pd.DataFrame) -> pd.DataFrame:
     """Флаги пропусков и нули вместо пропусков. Идемпотентна."""
     p = p.copy()
-    for cols, flag, lead in ((CONT, "cont_missing", "pshock3"), (PAR_CONT, "par_missing", "par_prem")):
+    for cols, flag, lead in (([*CONT, *LEVEL], "cont_missing", "pshock3"), (PAR_CONT, "par_missing", "par_prem")):
         known_missing = p[flag].eq(1) if flag in p else False
         p[flag] = (p[lead].isna() | known_missing).astype(int)
         p[cols] = p[cols].fillna(0.0)
