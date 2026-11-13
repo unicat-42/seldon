@@ -8,7 +8,10 @@
 #                   структурный валютный блок против боевых валютных моделей (`econ_struct`,
 #                   `compare_fx`; `ctot_rt` — условия торговли без задержки набора МВФ),
 #                   валютное заражение по торговым связям и параллельный курс на горизонтах
-#                   3 / 6 / 12 месяцев (`econ_contagion`, `compare_contagion`; ≈ 6 минут)
+#                   3 / 6 / 12 месяцев (`econ_contagion`, `compare_contagion`; ≈ 6 минут),
+#                   месячная модель войн на 3 / 6 / 12 месяцев с предвестниками и Candidate
+#                   Events (`month_features`, `model_month`, `compare_month`), доводка диад
+#                   (`dyads_live`, `compare_war live`; вместе ≈ 25 минут)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make risk       пересобрать только таблицу риска (нужны готовые таблицы `make all`)
 #   make test       автотесты на утечки будущего (секунды)
@@ -66,6 +69,14 @@ variants:
 	$(RUN) model_dyad
 	$(RUN) model_hist pitf_dyad logit state_war25
 	$(RUN) compare_war dyad
+	$(RUN) month_features
+	$(RUN) model_month
+	$(RUN) model_month cf
+	$(RUN) dyads_live
+	$(RUN) model_hist pitf_smoke logit state_war25
+	$(RUN) model_hist pitf_live logit state_war25
+	$(RUN) compare_war live
+	$(RUN) compare_month
 	$(RUN) econ_kr crisis all_currencies
 	$(RUN) econ_long deval25 all_currencies
 	$(RUN) econ_long gmd_cc

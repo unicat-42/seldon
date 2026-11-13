@@ -1251,23 +1251,27 @@ def test_future_blindness_war_monthly_model(h):
     as_of = pd.Period("2009-06", freq="M")
     feats = model_month.SETS["full"]
 
-    def run(lag_label: int = 1, **over):
+    def run(lag_label: int = 1, at: pd.Period = as_of, **over):
         f = _month_features(s, **over)
-        return model_month.forecast_asof(f, as_of, feats, h, lag=lag_label, C=0.1).sort_values("gw")
+        return model_month.forecast_asof(f, at, feats, h, lag=lag_label, C=0.1).sort_values("gw")
 
     ged = s["ged"]
-    bad_ged = _bad_events(ged, _ym(ged) >= as_of)
     bad_parties = s["parties"].copy()
-    fut = bad_parties.year >= as_of.year
+    fut = bad_parties.year >= as_of.year  # список сторон текущего года ещё не вышел
     bad_parties.loc[fut, "parties"] = bad_parties.loc[fut, "parties"].map(lambda _: WAR_STATES)
     clean = run()
     assert clean.p_onset.nunique() > 1 and clean.p_cont.nunique() > 1 and len(clean) == len(WAR_STATES)
-    _same(clean, run(ged=bad_ged, parties=bad_parties), ["p", "p_onset", "p_cont"])
-    # контроль: порча последнего месяца, чьи события уже вышли (as_of − 1), прогноз меняет;
-    # если «забыть» лаг в правиле известности метки — в обучение попадает окно с испорченным месяцем
-    assert _differs(clean, run(ged=_bad_events(ged, _ym(ged) == as_of - 1)), ["p_onset", "p_cont"])
-    only_m = _bad_events(ged, _ym(ged) == as_of)
-    assert _differs(run(lag_label=0), run(lag_label=0, ged=only_m), ["p_onset", "p_cont"])
+    _same(clean, run(ged=_bad_events(ged, _ym(ged) >= as_of), parties=bad_parties), ["p", "p_onset", "p_cont"])
+    # контроль самой проверки: порча прошлого года прогноз меняет
+    assert _differs(clean, run(ged=_bad_events(ged, _ym(ged).dt.year == as_of.year - 1)), ["p_onset", "p_cont"])
+    # то же «на декабрь» (так обучается боевой прогон): события декабря ещё не вышли
+    dec = pd.Period(f"{as_of.year - 1}-12", freq="M")
+    surge = pd.DataFrame({"gw": WAR_STATES, "country": "x", "year": dec.year, "month": 12, "type_of_violence": 1, "best": 5000,
+                          "conflict_new_id": 999, "deaths_state": 5000, "gwnoa": None, "gwnob": np.nan})
+    only_dec = pd.concat([_bad_events(ged, _ym(ged) == dec), surge], ignore_index=True)  # в декабре «воюют» все
+    _same(run(at=dec), run(at=dec, ged=only_dec), ["p", "p_onset", "p_cont"])
+    # контроль: если «забыть» лаг в правиле известности метки, в обучение попадает окно с декабрём
+    assert _differs(run(lag_label=0, at=dec), run(lag_label=0, at=dec, ged=only_dec), ["p_onset", "p_cont"])
 
 
 @pytest.mark.parametrize("h", [3, 6, 12])

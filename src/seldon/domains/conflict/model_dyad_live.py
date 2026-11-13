@@ -57,7 +57,7 @@ from seldon.evaluation.backtest import backtest
 from seldon.sources.cow import load_contiguity
 from seldon.sources.gw import load_states
 from seldon.sources.mid import load_mid
-from seldon.sources.ucdp import YEAR_FROM, YEAR_TO, load_acd, load_ged
+from seldon.sources.ucdp import YEAR_TO, load_acd, load_events, load_ged
 from seldon.sources.unga import load_unga
 
 HORIZON = 1
@@ -123,7 +123,6 @@ def build() -> tuple[pd.DataFrame, pd.DataFrame]:
     contig, states = load_contiguity(), load_states()
     grid = dyads.build_grid(states, contig)
     opp = dyads.opponents(load_acd(dyads.ACD_FROM, extra=("incompatibility",)))
-    from seldon.sources.ucdp import load_events
     events = load_events(candidate=False)
     dw = dyads.dyad_wars(load_ged(), opp, dyads.load_neighbor_set(contig))
     d = build_features(grid, states, opp, dw, events, load_unga(), load_mid(), dyads.load_capabilities())

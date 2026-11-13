@@ -43,7 +43,7 @@ import pandas as pd
 from seldon import DATA_PROCESSED, DATA_RAW, REPORTS
 from seldon.core.entities import GW_TO_SHORT, ISO3_TO_GW, POST_SOVIET_GW
 from seldon.core.metrics import auc, paired_comparison
-from seldon.domains.conflict.model_month import CF_HORIZONS, HORIZONS, SETS
+from seldon.domains.conflict.model_month import CF_HORIZONS, HORIZONS
 from seldon.domains.conflict.month_features import LIVE, SMOKE, SMOKE_NB
 from seldon.sources.ucdp import CANDIDATE_LAST_MONTH, YEAR_TO
 

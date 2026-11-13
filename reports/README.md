@@ -36,6 +36,11 @@
 | `dyad_cases.csv`, `dyad_top_2026.csv` | место известных пар перед началом войны; 15 самых опасных пар на 2026 год |
 | `pitf_dyad_state_war25_*` | модель войн со свёрнутыми диадными признаками (контроль) |
 | `war_dyad_comparison.csv` | два канала риска (`dy_indep`, `dy_intext`, `dy_cal2`) и `pitf_dyad` против `pitf`: мир, тихие ≥ 10 лет, постсоветские, внешние и внутренние начала (`compare_war dyad`) |
+| `war_month_comparison.csv`, `war_month_single_auc.csv`, `war_month_coefficients.csv` | месячная модель войн (чекпоинт 4.2): начало `state_war25` в ближайшие 3 / 6 / 12 месяцев, наборы предвестников против эталонов `pitf` и `dry`; мир, тихие ≥ 5 и ≥ 10 лет, постсоветские, после 2014 (`model_month`, `compare_month`) |
+| `war_month_cases.csv`, `war_month_top_2026-09.csv` | место стран за 3 / 6 / 12 месяцев до известных начал; прогноз из последнего месяца Candidate Events (не витрина) |
+| `war_month_cf_comparison.csv` | сравнение с conflictforecast.org на их целевой и на нашей, горизонты 3 и 12 месяцев |
+| `dyad_live_metrics.csv`, `dyad_live_coefficients.csv`, `dyad_live_cases.csv`, `dyad_live_ext_channel.csv`, `dyad_live_top_2026.csv` | доводка диад (чекпоинт 4.2): живые стычки вместо MID, раздельные модели соседей и держав, калибровка `p_ext` (`dyads_live`) |
+| `war_live_comparison.csv`, `pitf_smoke_state_war25_*`, `pitf_live_state_war25_*` | годовой срез: доводка диад и годовые предвестники против `pitf` (`compare_war live`) |
 | `fx_struct_comparison.csv`, `fx_struct_comparison_ctot_rt.csv` | структурный валютный блок (чекпоинт 3.3): режим курса, резервы, REER, условия торговли против боевых валютных моделей — годовой и месячный контуры; мир, постсоветские, тихие ≥ 10 лет, привязки, две половины периода (`compare_fx`). `_ctot_rt` — условия торговли с лагом 1 месяц вместо 6 |
 | `fx_struct_vs_base.csv` | то же для логрегрессий, но против `base` — боевого набора с выбранной регуляризацией: чистый вклад признаков |
 | `fx_struct_cases_long.csv`, `fx_struct_cases_kr.csv` | место страны по риску перед известными девальвациями: эталон против наборов |
