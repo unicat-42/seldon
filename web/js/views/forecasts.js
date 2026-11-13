@@ -5,6 +5,7 @@ import { S, load, niceMax, num, release, releaseList, esc, pct, dateRu, href, na
 
 const DEFAULT_EVENT = { war: "war25_onset", fx: "fxa", bank: "bank" };
 const norm = (s) => s.toLowerCase().replace(/ё/g, "е");
+let keyRow = null;    // строка, выбранная с клавиатуры — вернуть на неё фокус после перерисовки
 let typing = false;  // страница перерисовывается при вводе в поиск — вернуть фокус в поле
 
 /** Параметры экрана из адреса — с подстановкой значений по умолчанию. */
@@ -63,7 +64,7 @@ export async function forecasts(el, _parts, q, { samePage }) {
     if (!ev) return `<span class="st st-text">В этом выпуске не публиковалось</span>`;
     return estCell(r.est[ev], max[ev], { observed: !!rel.contexts[ev].observed });
   };
-  const rowHtml = (r, i) => `<tr class="row ${r.iso3 === sel ? "sel" : ""} dom-${domain}" data-iso="${r.iso3}">
+  const rowHtml = (r, i) => `<tr class="row ${r.iso3 === sel ? "sel" : ""} dom-${domain}" data-iso="${r.iso3}" tabindex="0" aria-selected="${r.iso3 === sel}">
       <td class="rk num">${i ?? ""}</td>
       <td class="name"><a href="${href("country/" + r.iso3, carried)}">${esc(nameOf(r.iso3))}</a>${r.post_soviet && st.group === "world" ? '<span class="ps-mark" title="постсоветская страна"></span>' : ""}</td>
       ${["war", "fx", "bank"].map((d) => `<td class="dom-${d} ${d === domain ? "" : "ctx-col"}">${cell(r, d)}</td>`).join("")}</tr>
@@ -72,7 +73,7 @@ export async function forecasts(el, _parts, q, { samePage }) {
   const head = (d) => {
     const ev = d === "war" && !cols.war ? "war25_onset" : cols[d];
     const c = ev ? rel.contexts[ev] : null;
-    const t = d === "war" && !cols.war ? "начало или продолжение, ≥ 25" : c?.short;
+    const t = d === "war" && !cols.war ? "начало или продолжение, от 25 погибших" : c?.short;
     return `<th class="dom-${d} ${d === domain ? "active" : "ctx-col"}" scope="col"><span class="dot"></span>${DOMAIN[d]}${c ? `<small>${esc(t)}${c.target_period ? " · " + esc(c.target_period) : ""}</small>` : ""}</th>`;
   };
 
@@ -80,21 +81,21 @@ export async function forecasts(el, _parts, q, { samePage }) {
   <section class="section" style="padding-top:30px">
     ${rel.archived ? `<div class="banner"><span>Архивный выпуск ${dateRu(rel.id)} · опубликован ${dateRu(rel.published)}</span><a href="${href("forecasts", { ...carried, release: null })}">Перейти к последнему</a></div>` : ""}
     <div class="section-head">
-      <div><h1>Прогнозы по странам</h1><p>Выберите событие для сравнения. Оценки остальных доменов останутся рядом как контекст.</p></div>
+      <div><h1>Прогнозы по странам</h1><p>Выберите событие для сравнения. Вероятности по другим типам кризисов останутся рядом для сравнения.</p></div>
       <div class="ctl"><span>Выпуск</span><select class="field" id="rel" aria-label="Выпуск">${releaseList().map((r) => `<option value="${r.id}" ${r.id === rel.id ? "selected" : ""}>${esc(r.label)}</option>`).join("")}</select></div>
     </div>
     <div class="ctx">${rel.archived ? `Выпуск ${dateRu(rel.id)} · опубликован ${dateRu(rel.published)}` : `${esc(rel.label)} · ещё не заморожен как публичный выпуск; последний публичный — ${dateRu(S.current.release.last_public_vintage)}`}</div>
 
     <div class="controls" style="margin-top:20px">
-      <div class="ctl"><span>Сравниваем</span><div class="seg" id="dom">${Object.keys(DOMAIN).map((d) => `<button data-v="${d}" aria-pressed="${d === domain}" ${EVENTS[d].some((e) => rel.contexts[e]) ? "" : "disabled"}>${DOMAIN[d]}</button>`).join("")}</div></div>
-      <div class="ctl"><span>Группа</span><div class="seg" id="grp"><button data-v="world" aria-pressed="${st.group === "world"}">Мир</button><button data-v="ps" aria-pressed="${st.group === "ps"}">15 постсоветских стран</button></div></div>
+      <div class="ctl"><span>Сравниваем</span><div class="seg" role="group" aria-label="Сравниваем" id="dom">${Object.keys(DOMAIN).map((d) => `<button data-v="${d}" aria-pressed="${d === domain}" ${EVENTS[d].some((e) => rel.contexts[e]) ? "" : "disabled"}>${DOMAIN[d]}</button>`).join("")}</div></div>
+      <div class="ctl"><span>Группа</span><div class="seg" role="group" aria-label="Группа" id="grp"><button data-v="world" aria-pressed="${st.group === "world"}">Мир</button><button data-v="ps" aria-pressed="${st.group === "ps"}">15 постсоветских стран</button></div></div>
       <div class="ctl"><label class="vh" for="tq">Найти страну в таблице</label><input class="field" id="tq" type="search" placeholder="Найти страну" value="${esc(st.search)}"></div>
     </div>
     <div class="controls" style="margin-top:12px">${secondRow(rel, domain, event, thr, part)}</div>
     <div class="plate ${domain}" style="margin-top:16px"><b>${esc(ctx.title)}.</b> ${esc(ctx.event)}.
-      ${ctx.target_period ? ` Целевой период: <b>${esc(ctx.target_period)}</b>.` : ""} Выборка: ${esc(ctx.sample)} (${ctx.n}).
-      ${ctx.interval === "none" && !ctx.observed ? " Модель на деревьях: интервал оценки не рассчитывается." : ""}
-      ${ctx.interval === "unpublished" ? " В этом выпуске интервалы оценок не публиковались." : ""}
+      ${ctx.target_period ? ` Период прогноза: <b>${esc(ctx.target_period)}</b>.` : ""} Выборка: ${esc(ctx.sample)} (${ctx.n}).
+      ${ctx.interval === "none" && !ctx.observed ? " Модель на деревьях: диапазон неопределённости не рассчитывается." : ""}
+      ${ctx.interval === "unpublished" ? " В этом выпуске диапазоны неопределённости не публиковались." : ""}
       ${ctx.note ? " " + esc(ctx.note) : ""}${ctx.retro ? " " + esc(ctx.retro) : ""}</div>
   </section>
 
@@ -140,25 +141,33 @@ export async function forecasts(el, _parts, q, { samePage }) {
     const tr = e.target.closest("tr.row");
     if (tr) setQuery({ sel: tr.dataset.iso === sel ? null : tr.dataset.iso });
   };
+  // выбор строки с клавиатуры: Enter или пробел на строке; после перерисовки фокус возвращается на неё
+  el.querySelector("tbody").onkeydown = (e) => {
+    if ((e.key !== "Enter" && e.key !== " ") || !e.target.matches("tr.row")) return;
+    e.preventDefault();
+    keyRow = e.target.dataset.iso;
+    setQuery({ sel: keyRow === sel ? null : keyRow });
+  };
+  if (keyRow) { el.querySelector(`tr.row[data-iso="${keyRow}"]`)?.focus(); keyRow = null; }
 }
 
 function secondRow(rel, domain, event, thr, part) {
   const btn = (ev, label) => `<button data-ev="${ev}" aria-pressed="${ev === event}" ${rel.contexts[ev] ? "" : 'disabled title="В этом выпуске не публиковалось"'}>${label}</button>`;
   if (domain === "war") {
-    return `<div class="ctl"><span>Что оцениваем</span><div class="seg">${btn(`${thr}_onset`, "Начало")}${btn(`${thr}_cont`, "Продолжение")}</div></div>
-      <div class="ctl"><span>Порог</span><div class="seg">${btn(`war25_${part}`, "≥ 25")}${btn(`war1000_${part}`, "≥ 1000 погибших за год")}</div></div>`;
+    return `<div class="ctl"><span>Что оцениваем</span><div class="seg" role="group" aria-label="Что оцениваем">${btn(`${thr}_onset`, "Начало")}${btn(`${thr}_cont`, "Продолжение")}</div></div>
+      <div class="ctl"><span>Порог</span><div class="seg" role="group" aria-label="Порог">${btn(`war25_${part}`, "от 25 погибших за год")}${btn(`war1000_${part}`, "от 1000 погибших за год")}</div></div>`;
   }
   if (domain === "fx") {
-    return `<div class="ctl"><span>Вид</span><div class="seg">${btn("fxa", "Структурный прогноз")}${btn("fxm", "Месячный обвал")}${btn("stress", "Текущий стресс")}</div></div>
-      <div class="ctl"><span>Другие модели</span><div class="seg">${btn("fxa_tree", "Структурный, деревья")}${btn("fxm_live", "Месячный, модель-претендент")}</div></div>`;
+    return `<div class="ctl"><span>Вид</span><div class="seg" role="group" aria-label="Вид">${btn("fxa", "Обвал за год")}${btn("fxm", "Скачок за месяц")}${btn("stress", "Давление сейчас")}</div></div>
+      <div class="ctl"><span>Другие модели</span><div class="seg" role="group" aria-label="Другие модели">${btn("fxa_tree", "Обвал за год, вторая модель")}${btn("fxm_live", "Скачок за месяц, новая модель")}</div></div>`;
   }
-  const b = (ev) => btn(ev, rel.contexts[ev]?.target_period ?? (ev === "bank" ? "основной период" : "проверочный период"));
-  return `<div class="ctl"><span>Целевой период</span><div class="seg">${b("bank")}${btn("bank_check", (rel.contexts.bank_check?.target_period ?? "") + " · проверочный")}</div></div>`;
+  const b = (ev) => btn(ev, rel.contexts[ev]?.target_period ?? (ev === "bank" ? "основной период" : "прошлый период, для проверки"));
+  return `<div class="ctl"><span>Период прогноза</span><div class="seg" role="group" aria-label="Период прогноза">${b("bank")}${btn("bank_check", (rel.contexts.bank_check?.target_period ?? "") + " · проверочный")}</div></div>`;
 }
 
 function inspector(rel, st, sel, max, carried) {
   const ctx = rel.contexts[st.event];
-  if (!sel) return `<p class="muted">Выберите строку таблицы, чтобы увидеть оценку подробно: интервал, базовую частоту и место в выборке.</p>
+  if (!sel) return `<p class="muted">Выберите строку таблицы, чтобы увидеть оценку подробно: диапазон неопределённости, обычный уровень и место в списке.</p>
     <p class="small faint" style="margin-top:10px">Название страны открывает её досье. Выпуск, событие, группа и сортировка сохраняются при переходе и возврате.</p>`;
   const r = rel.rows.get(sel), e = r.est[st.event];
   const asOf = ctx.as_of_per_country ? r.fx_as_of : null;
@@ -169,7 +178,7 @@ function inspector(rel, st, sel, max, carried) {
       ? `<div class="big num" style="margin-top:10px">${signed(e.value, 1)} σ</div><p class="small muted" style="margin-top:8px">Наблюдаемый показатель на ${dateRu(r.fx_as_of)}. Это не вероятность кризиса.</p>`
       : `<div class="big num" style="margin-top:10px">${pct(e.p)}</div>
         <dl class="kv">
-          <dt>Интервал оценки</dt><dd>${interval(e)}</dd>
+          <dt>Диапазон неопределённости</dt><dd>${interval(e)}</dd>
           <dt>${esc(rel.baseLabel)}</dt><dd class="num">${e.base_rate != null ? pct(e.base_rate) : "—"}</dd>
           <dt>Место</dt><dd class="num">${e.rank ?? "—"} из ${e.n}</dd>
           ${e.rec ? `<dt>Состояние проверки</dt><dd>${e.rec.status === "resolved" ? (e.rec.outcome ? "событие наступило" : "событие не наступило") : state(e.rec.status)}</dd>` : ""}
@@ -230,7 +239,7 @@ async function p4(rel, sel, carried) {
         : `<circle data-id="${p.id}" class="${p.id === sel ? "sp-sel" : p.ps ? "sp-ps" : "sp-dot"}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${p.id === sel ? 5.5 : 4}" style="cursor:pointer"><title>${esc(nameOf(p.id))}</title></circle>`)).join("")}
       ${trail}
       ${s ? `<text class="sp-name" x="${Math.min(X(s.x) + 9, W - 150)}" y="${Y(s.y) - 9}">${esc(nameOf(s.id))}</text>` : ""}
-      <text class="hp-axis" x="${(W + L) / 2}" y="${H - 8}" text-anchor="middle">Вероятность годового обвала курса, % · ${esc(cx.target_period)} · шкала квадратного корня</text>
+      <text class="hp-axis" x="${(W + L) / 2}" y="${H - 8}" text-anchor="middle">Вероятность годового обвала курса, % · ${esc(cx.target_period)} · шкала растянута у нуля</text>
       <text class="hp-axis" transform="translate(14 ${(H - B + T) / 2}) rotate(-90)" text-anchor="middle">Текущее валютное давление, σ · ${esc(dateRu(cs.as_of.split(" … ")[0]))} – ${esc(dateRu(cs.as_of.split(" … ").pop()))}</text>
     </svg>
     <div class="legend" style="margin-top:8px"><span><svg viewBox="0 0 12 12" style="width:12px"><circle class="sp-dot" cx="6" cy="6" r="4"/></svg>страна мира</span>

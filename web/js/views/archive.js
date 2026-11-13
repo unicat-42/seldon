@@ -3,7 +3,7 @@
 import { S, load, release, esc, pct, pctRange, num, signed, dateRu, href, nameOf, state, stateText, factorBar, download, cap, domainOf, DOMAIN, ARCHIVE_EVENT, archiveKey, archiveWindow, featValue, natural } from "../lib.js";
 
 const FAMILY = { war: "Конфликты", fxa: "Валюта, год", fxm: "Валюта, месяц", bank: "Банки" };
-const CHECK = { resolved: "Исход известен", ongoing: "Целевой период ещё идёт", awaiting: "Ожидаются данные об исходе" };
+const CHECK = { resolved: "Исход известен", ongoing: "Период прогноза ещё идёт", awaiting: "Ожидаются данные об исходе" };
 
 export async function archive(el, parts) {
   const open = parts[0];
@@ -14,7 +14,7 @@ export async function archive(el, parts) {
     <div class="section-head"><div><h1>Архив опубликованных прогнозов</h1>
       <p>Выберите выпуск, чтобы увидеть опубликованные оценки. Исходы и последующие исправления показаны отдельно.</p></div></div>
     <div class="tbl-scroll"><table class="tbl">
-      <thead><tr><th>Выпуск</th><th>Опубликован</th><th>Модель / схема</th><th>Целевые периоды</th><th>Состояние проверки</th></tr></thead>
+      <thead><tr><th scope="col">Выпуск</th><th scope="col">Опубликован</th><th scope="col">Модель / схема</th><th scope="col">Периоды прогноза</th><th scope="col">Состояние проверки</th></tr></thead>
       <tbody>
         ${vs.map((v) => { const st = [...new Set(v.models.flatMap((m) => m.check_status))];
           return `<tr><td class="name" style="padding-left:0"><a href="${href("archive/" + v.vintage)}">${cap(dateRu(v.vintage))}</a></td>
@@ -23,7 +23,7 @@ export async function archive(el, parts) {
             <td class="small">${[...new Set(v.models.map((m) => `${FAMILY[m.family]}: ${archiveWindow(v, m)}`))].map(esc).join("<br>")}</td>
             <td class="small">${st.map((s) => `${CHECK[s]} — ${v.models.filter((m) => m.check_status.includes(s)).length}`).join("<br>")}</td></tr>`; }).join("")}
         <tr><td class="name faint" style="padding-left:0">Текущий расчёт</td><td class="num faint">${dateRu(cur.calculated)}</td>
-          <td colspan="3" class="small muted">Не заморожен и в архив не входит. Следующий публичный выпуск появится здесь после заморозки снимка.</td></tr>
+          <td colspan="3" class="small muted">Не заморожен и в архив не входит. Следующий публичный выпуск появится здесь после заморозки выпуска.</td></tr>
       </tbody></table></div>
   </section>
   ${vs.filter((v) => !open || v.vintage === open).map((v) => vintageBlock(v)).join("")}`;
@@ -41,10 +41,10 @@ function vintageBlock(v) {
       <p>Опубликован ${dateRu(v.published)} · ${v.rows} стран · ${esc(v.origin ?? "")}</p></div>
       <a class="btn ghost" href="${href("forecasts", { release: v.vintage })}">Открыть оценки выпуска</a></div>
     <div class="tbl-scroll"><table class="tbl">
-      <thead><tr><th>Событие</th><th>Модель</th><th>Срез</th><th>Целевой период</th><th>Стран</th><th>Интервал</th><th>Состояние проверки</th></tr></thead>
-      <tbody>${v.models.map((m) => `<tr><td style="max-width:38ch"><b style="font-weight:500">${esc(ARCHIVE_EVENT[archiveKey(m.column)][0])}</b>${m.role === "challenger" ? ' <span class="tag">модель-претендент</span>' : ""}
+      <thead><tr><th scope="col">Событие</th><th scope="col">Модель</th><th scope="col">Дата прогноза</th><th scope="col">Период прогноза</th><th scope="col">Стран</th><th scope="col">Интервал</th><th scope="col">Состояние проверки</th></tr></thead>
+      <tbody>${v.models.map((m) => `<tr><td style="max-width:38ch"><b style="font-weight:500">${esc(ARCHIVE_EVENT[archiveKey(m.column)][0])}</b>${m.role === "challenger" ? ' <span class="tag">новая модель на испытании</span>' : ""}
           <span class="st-detail">${esc(ARCHIVE_EVENT[archiveKey(m.column)][1])}</span></td>
-        <td class="small muted">${esc(m.model)}</td><td class="small">${esc(/^\d{4}-\d{2}-\d{2}$/.test(m.as_of ?? "") ? dateRu(m.as_of) : (m.family === "fxm" ? "у каждой страны свой: последний месяц с курсом МВФ" : "1 января года целевого периода"))}</td>
+        <td class="small muted">${esc(m.model)}</td><td class="small">${esc(/^\d{4}-\d{2}-\d{2}$/.test(m.as_of ?? "") ? dateRu(m.as_of) : (m.family === "fxm" ? "у каждой страны свой: последний месяц с курсом МВФ" : "1 января года периода прогноза"))}</td>
         <td class="small num">${esc(archiveWindow(v, m))}</td><td class="num">${m.n_countries}</td><td>${state("no_interval")}</td>
         <td class="small">${m.check_status.map((s) => (s === "resolved" ? "Исход известен" : state(s))).join(" ")}${m.retrospective_note ? `<span class="st-detail">${esc(m.retrospective_note)}</span>` : ""}</td></tr>`).join("")}</tbody>
     </table></div>
@@ -87,9 +87,9 @@ export async function record(el, parts) {
       <div><div class="eyebrow">${esc(r.leftTitle)}</div>
         <div class="big num" style="margin-top:10px">${pct(r.p)}</div>
         <dl class="kv">
-          <dt>Интервал оценки</dt><dd>${r.lo != null ? `<span class="num">${pctRange(r.lo, r.hi)}</span>` : state("no_interval")}</dd>
+          <dt>Диапазон неопределённости</dt><dd>${r.lo != null ? `<span class="num">${pctRange(r.lo, r.hi)}</span>` : state("no_interval")}</dd>
           ${r.rank ? `<dt>Место</dt><dd class="num">${r.rank}${r.n ? ` из ${r.n}` : ""}</dd>` : ""}
-          <dt>Целевой период</dt><dd class="num">${esc(r.window)}</dd>
+          <dt>Период прогноза</dt><dd class="num">${esc(r.window)}</dd>
           <dt>Информационная граница</dt><dd>${esc(r.asOf)}</dd>
           <dt>Модель</dt><dd class="small">${esc(r.model)}</dd>
           ${r.proof.map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(v)}</dd>`).join("")}
@@ -102,7 +102,7 @@ export async function record(el, parts) {
           <dl class="kv"><dt>Источник</dt><dd>${esc(r.outcome.source)}</dd><dt>Версия наблюдений</dt><dd>${esc(r.outcome.observed)}</dd><dt>Дата проверки</dt><dd>${esc(r.outcome.checked)}</dd></dl>
           ${r.outcome.note ? `<p class="plate small">${esc(r.outcome.note)}</p>` : ""}`
         : `<div style="margin-top:14px;font-size:19px;font-family:var(--serif)">${esc(stateText(r.status))}</div>
-          <p class="small muted" style="margin-top:8px">${r.status === "ongoing" ? `Целевой период (${esc(r.window)}) не закончился. Исход появится здесь после его окончания и выхода данных наблюдений — с источником и версией.` : "Целевой период закончился, но данные наблюдений об исходе ещё не опубликованы."}</p>
+          <p class="small muted" style="margin-top:8px">${r.status === "ongoing" ? `Период прогноза (${esc(r.window)}) не закончился. Исход появится здесь после его окончания и выхода данных наблюдений — с источником и версией.` : "Период прогноза закончился, но данные наблюдений об исходе ещё не опубликованы."}</p>
           <p class="small faint" style="margin-top:8px">Пока исход неизвестен, здесь нет ни нуля, ни «не наступило».</p>`}
       </div>
     </div>
@@ -115,7 +115,7 @@ export async function record(el, parts) {
   </section>`;
 
   const data = { country: nameOf(r.iso), iso3: r.iso, record: r.kindLabel, release: r.title, event: r.event, probability: r.p, interval: r.lo != null ? [r.lo, r.hi] : null,
-    interval_status: r.lo != null ? "ok" : "Интервал не рассчитан", rank: r.rank ?? null, n: r.n ?? null, target_period: r.window, as_of: r.asOf, model: r.model,
+    interval_status: r.lo != null ? "ok" : "Диапазон не рассчитан", rank: r.rank ?? null, n: r.n ?? null, target_period: r.window, as_of: r.asOf, model: r.model,
     outcome: r.outcome ?? null, status: r.outcome ? "resolved" : stateText(r.status), proof: Object.fromEntries(r.proof), url: location.href };
   el.querySelector("#link").onclick = async (e) => { try { await navigator.clipboard.writeText(location.href); e.target.textContent = "Ссылка скопирована"; } catch { prompt("Постоянная ссылка", location.href); } };
   el.querySelector("#json").onclick = () => download(`seldon_record_${r.iso}_${r.slug}.json`, JSON.stringify(data, null, 2));
@@ -175,7 +175,7 @@ async function oosRecord(contour, year, id) {
     p: r[1], lo: r[2], hi: r[3], rank: r[4], n: yr.n, window: yr.target, asOf: dateRu(yr.as_of), model: rib.model,
     factors: { features: feats }, banner: "Исторические оценки рассчитаны по протоколу проверки на будущих для обучения наблюдениях. Они не были публичными прогнозами того времени.",
     proof: [["Обучение", `${det.n_train.toLocaleString("ru-RU")} наблюдений, базовая частота ${pct(det.base_rate)}`]],
-    outcome: { text: r[5] ? "Событие наступило" : "Событие не наступило", source: rib.source, observed: `целевой период ${yr.target}`, checked: dateRu(S.manifest.today),
+    outcome: { text: r[5] ? "Событие наступило" : "Событие не наступило", source: rib.source, observed: `период прогноза ${yr.target}`, checked: dateRu(S.manifest.today),
       note: "Исход взят из текущей версии наблюдений; он использован для проверки, но не для обучения этого выпуска." }, status: "resolved" };
 }
 
@@ -190,8 +190,8 @@ function cardSvg(r) {
   <text x="56" y="130" font-size="44" font-weight="600" fill="#25231f">${t(nameOf(r.iso))} · ${t(r.title)}</text>
   ${ev.map((l, i) => `<text x="56" y="${176 + i * 26}" font-size="19" fill="#57524a" font-family="Arial, sans-serif">${t(l)}</text>`).join("")}
   <text x="56" y="350" font-size="96" font-weight="600" fill="#25231f">${t(pct(r.p))}</text>
-  <text x="56" y="396" font-size="20" fill="#57524a" font-family="Arial, sans-serif">${r.lo != null ? "Интервал оценки: " + t(pctRange(r.lo, r.hi)) : "Интервал не рассчитан"}${r.rank ? ` · место ${r.rank}${r.n ? " из " + r.n : ""}` : ""}</text>
-  <text x="56" y="430" font-size="20" fill="#57524a" font-family="Arial, sans-serif">Целевой период: ${t(r.window)} · информационная граница: ${t(r.asOf)}</text>
+  <text x="56" y="396" font-size="20" fill="#57524a" font-family="Arial, sans-serif">${r.lo != null ? "Диапазон неопределённости: " + t(pctRange(r.lo, r.hi)) : "Диапазон не рассчитан"}${r.rank ? ` · место ${r.rank}${r.n ? " из " + r.n : ""}` : ""}</text>
+  <text x="56" y="430" font-size="20" fill="#57524a" font-family="Arial, sans-serif">Период прогноза: ${t(r.window)} · информационная граница: ${t(r.asOf)}</text>
   <line x1="56" x2="944" y1="462" y2="462" stroke="#c3b8a1"/>
   <text x="56" y="500" font-size="22" fill="#25231f" font-family="Arial, sans-serif">${r.outcome ? "Что произошло затем: " + t(r.outcome.text.toLowerCase()) + " (" + t(r.outcome.source) + ")" : t(stateText(r.status))}</text>
   <text x="56" y="532" font-size="15" fill="#857f73" font-family="Arial, sans-serif">${t(r.model)}</text>

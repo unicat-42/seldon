@@ -1,11 +1,11 @@
 // Досье страны. Порядок секций фиксирован: C1 шапка, C2 покрытие, C3 профиль, C4 история,
 // C5 факторы, C6 происхождение.
 import { S, load, release, releaseList, esc, pct, num, signed, dateRu, href, nameOf, state, stateText, stateDetail, estCell, scaleMax,
-  interval, ctxLine, strip, niceMax, factorBar, sparkline, ownWarEvent, setQuery, download, toCSV, DOMAIN_FULL, low, featValue } from "../lib.js";
+  interval, ctxLine, oddsLine, strip, niceMax, factorBar, sparkline, ownWarEvent, setQuery, download, toCSV, DOMAIN_FULL, low, featValue } from "../lib.js";
 import { carry, readState } from "./forecasts.js";
 
-const FACTOR_TABS = [["war25", "Конфликт, ≥ 25", "war"], ["war1000", "Конфликт, ≥ 1000", "war"], ["fxa", "Структурный валютный", "fx"],
-  ["fxm", "Месячный обвал", "fx"], ["fxm_live", "Месячный, претендент", "fx"], ["fxa_tree", "Структурный, деревья", "fx"], ["bank", "Банки", "bank"]];
+const FACTOR_TABS = [["war25", "Война, от 25", "war"], ["war1000", "Большая война, от 1000", "war"], ["fxa", "Обвал курса за год", "fx"],
+  ["fxm", "Скачок за месяц", "fx"], ["fxm_live", "Скачок за месяц, новая модель", "fx"], ["fxa_tree", "Обвал за год, вторая модель", "fx"], ["bank", "Банки", "bank"]];
 
 export async function country(el, parts, q) {
   const iso = (parts[0] ?? "").toUpperCase();
@@ -17,15 +17,19 @@ export async function country(el, parts, q) {
   const warEv = ownWarEvent(row), war1000Ev = row.est.war1000_onset ? ownWarEvent(row, "war1000") : null;
   const max = (ev) => scaleMax(rel, ev);
   const est = (ev, opt) => (rel.contexts[ev] ? estCell(row.est[ev], max(ev), opt) : `<span class="st st-text">В этом выпуске не публиковалось</span>`);
-  const withInt = (ev) => { const e = row.est[ev]; return e?.p !== undefined ? `<div class="small muted" style="margin-top:4px">Интервал оценки: ${interval(e)} · место ${e.rank ?? "—"} из ${e.n}</div>` : (e?.status ? `<span class="st-detail">${esc(stateDetail(e.status) ?? "")}</span>` : ""); };
+  // простой слой — шансы и обычный уровень; точный (интервал, место, определение события) — под «Подробнее»
+  const more = (ev, extra = "", int = null) => { const e = row.est[ev];
+    if (e?.p === undefined) return e?.status ? `<span class="st-detail">${esc(stateDetail(e.status) ?? "")}</span>` : "";
+    return `<p class="odds">${esc(oddsLine(e))}</p><details class="more"><summary>Подробнее: интервал, место в списке, определение события</summary>
+      <div class="small muted">${int ?? `Диапазон неопределённости: ${interval(e)}`} · место ${e.rank ?? "—"} из ${e.n}</div>${extra}</details>`; };
 
   // --- C2: статусы покрытия ---
   const covState = (dom) => {
     if (dom === "war") return ["Оценивается", warEv.endsWith("cont") ? "идёт конфликт — оценивается продолжение" : "конфликта нет — оценивается начало"];
     if (dom === "fx") {
       const e = row.est.fxa, m = row.est.fxm;
-      if (e?.p !== undefined) return ["Оценивается", m?.p !== undefined ? "структурный прогноз, месячный обвал и текущее давление" : `структурный прогноз; месячный — ${low(stateText(m?.status))}`];
-      if (m?.p !== undefined) return ["Оценивается частично", `месячный обвал и давление; структурный — ${low(stateText(e?.status))}`];
+      if (e?.p !== undefined) return ["Оценивается", m?.p !== undefined ? "обвал за год, скачок за месяц и давление сейчас" : `обвал за год; скачок за месяц — ${low(stateText(m?.status))}`];
+      if (m?.p !== undefined) return ["Оценивается частично", `скачок за месяц и давление; обвал за год — ${low(stateText(e?.status))}`];
       return [stateText(e?.status), stateDetail(e?.status)];
     }
     const e = row.est.bank;
@@ -67,20 +71,18 @@ export async function country(el, parts, q) {
   </section>
 
   <section class="section" id="est">
-    <div class="section-head"><div><h2>Оценки в выбранном выпуске</h2></div></div>
+    <div class="section-head"><div><h2>Вероятности в выбранном выпуске</h2></div></div>
     <div class="grid">
       <div class="c7">
         <div class="dom-block dom-war"><h3><span class="dot"></span>Вооружённые конфликты</h3>
-          <div class="sub-block"><div class="t">${warEv.endsWith("cont") ? "Продолжение" : "Начало"}, ≥ 25 погибших</div><div>${est(warEv)}${withInt(warEv)}${ctxLine(rel, warEv)}</div></div>
-          ${war1000Ev ? `<div class="sub-block"><div class="t">${war1000Ev.endsWith("cont") ? "Продолжение" : "Начало"}, ≥ 1000 погибших</div><div>${est(war1000Ev)}${withInt(war1000Ev)}</div></div>` : ""}
+          <div class="sub-block"><div class="t">${warEv.endsWith("cont") ? "Продолжение войны" : "Начало войны"}, от 25 погибших</div><div>${est(warEv)}${more(warEv, ctxLine(rel, warEv))}</div></div>
+          ${war1000Ev ? `<div class="sub-block"><div class="t">${war1000Ev.endsWith("cont") ? "Продолжение большой войны" : "Начало большой войны"}, от 1000 погибших</div><div>${est(war1000Ev)}${more(war1000Ev, ctxLine(rel, war1000Ev))}</div></div>` : ""}
           ${warEv.endsWith("cont") ? `<p class="small muted" style="margin-top:8px">${state("other_group")} — в рейтинг начала конфликта страна не входит.</p>` : ""}
         </div>
         <div class="dom-block dom-fx"><h3><span class="dot"></span>Валютные кризисы</h3>
-          <div class="sub-block"><div class="t">Структурный прогноз</div><div>${est("fxa")}${withInt("fxa")}${row.est.fxa?.p !== undefined ? ctxLine(rel, "fxa") : ""}
-            ${row.est.fxa_tree?.p !== undefined ? `<p class="small muted" style="margin-top:6px">Та же цель, модель на деревьях: <span class="num">${pct(row.est.fxa_tree.p)}</span> · ${state("no_interval")}</p>` : ""}</div></div>
-          <div class="sub-block"><div class="t">Месячный обвал</div><div>${est("fxm")}${withInt("fxm")}${row.est.fxm?.p !== undefined ? ctxLine(rel, "fxm", { asOf: row.fx_as_of }) : ""}
-            ${row.est.fxm_live?.p !== undefined ? `<p class="small muted" style="margin-top:6px"><span class="tag">модель-претендент</span> <span class="num">${pct(row.est.fxm_live.p)}</span>, интервал ${interval(row.est.fxm_live)} — публикуется рядом для сравнения и основную оценку не заменяет.</p>` : ""}</div></div>
-          <div class="sub-block"><div class="t">Текущее давление</div><div>
+          <div class="sub-block"><div class="t">Обвал курса за год</div><div>${est("fxa")}${more("fxa", ctxLine(rel, "fxa") + (row.est.fxa_tree?.p !== undefined ? `<p class="small muted" style="margin-top:6px">То же событие, вторая модель: <span class="num">${pct(row.est.fxa_tree.p)}</span> · ${state("no_interval")}</p>` : ""))}</div></div>
+          <div class="sub-block"><div class="t">Резкий скачок за месяц</div><div>${est("fxm")}${more("fxm", ctxLine(rel, "fxm", { asOf: row.fx_as_of }) + (row.est.fxm_live?.p !== undefined ? `<p class="small muted" style="margin-top:6px"><span class="tag">новая модель на испытании</span> <span class="num">${pct(row.est.fxm_live.p)}</span>, интервал ${interval(row.est.fxm_live)} — публикуется рядом для сравнения и основную оценку не заменяет.</p>` : ""))}</div></div>
+          <div class="sub-block"><div class="t">Давление на валюту сейчас</div><div>
             ${row.est.stress?.value !== undefined ? `<div><span class="big num" style="font-size:24px">${signed(row.est.stress.value, 1)} σ</span> <span class="small muted">на ${dateRu(row.fx_as_of)} · наблюдение, не вероятность</span></div>
               ${!rel.archived && d.emp ? sparkline(d.emp) : ""}` : est("stress")}
             ${ind ? `<div class="ind">${indItem("deval12", "Курс за 12 месяцев", (v) => signed(100 * v, 1) + " %")}${indItem("reserves_g12", "Резервы за 12 месяцев", (v) => signed(100 * v, 1) + " %")}${indItem("infl12", "Инфляция за 12 месяцев", (v) => num(100 * v, 1) + " %")}
@@ -90,7 +92,7 @@ export async function country(el, parts, q) {
         </div>
         <div class="dom-block dom-bank"><h3><span class="dot"></span>Банковские кризисы</h3>
           <div class="sub-block"><div class="t">Системный кризис</div><div>${row.est.bank?.status ? state(row.est.bank.status, { detail: true }) : est("bank")}
-            ${row.est.bank?.p !== undefined ? `<div class="small muted" style="margin-top:4px">${state("no_interval")} · место ${row.est.bank.rank} из ${row.est.bank.n}</div>${ctxLine(rel, "bank")}` : ""}</div></div>
+            ${row.est.bank?.p !== undefined ? more("bank", ctxLine(rel, "bank"), state("no_interval")) : ""}</div></div>
         </div>
       </div>
       <aside class="c5"><div class="card"><h3>В мировом контексте</h3><p class="small muted" style="margin-top:4px">Положение страны среди всех стран с оценкой по тому же событию. Между событиями шкалы не сравниваются.</p>
@@ -100,7 +102,7 @@ export async function country(el, parts, q) {
 
   <section class="section" id="hist">
     <div class="section-head"><div><h2>Как менялись оценки и что происходило затем</h2>
-      <p>Оценки исторической проверки вслепую: каждая рассчитана только по данным, доступным на её дату. Нажмите на точку, чтобы увидеть её целевое окно. <span class="tag dark">Ретроспективная OOS-проверка</span></p></div></div>
+      <p>Оценки исторической проверки вслепую: каждая рассчитана только по данным, доступным на её дату. Нажмите на точку, чтобы увидеть её окно прогноза. <span class="tag dark">Проверка на прошлом, вслепую</span></p></div></div>
     <div class="hist" id="histbox">${history(d, q.hp)}</div>
   </section>
 
@@ -108,23 +110,23 @@ export async function country(el, parts, q) {
     <div class="section-head"><div><h2>Что повлияло на оценку модели</h2>
       <p>Вклады признаков в выбранный прогноз. Они объясняют расчёт модели и не устанавливают причины будущего события.</p></div></div>
     ${rel.archived ? `<p class="plate">В выпуске ${dateRu(rel.id)} вклады признаков не публиковались. Ниже — разбор текущего расчёта.</p>` : ""}
-    ${tabs.length ? `<div class="seg" id="ftabs" style="margin:14px 0">${tabs.map(([k, t]) => `<button data-v="${k}" aria-pressed="${k === ftab}">${t}</button>`).join("")}</div>
+    ${tabs.length ? `<div class="seg" id="ftabs" role="group" aria-label="Модель" style="margin:14px 0">${tabs.map(([k, t]) => `<button data-v="${k}" aria-pressed="${k === ftab}">${t}</button>`).join("")}</div>
       <div class="dom-${tabs.find(([k]) => k === ftab)[2]}">${factors(d, ftab)}</div>` : `<p class="muted">Ни одна модель не даёт оценки для этой страны.</p>`}
   </section>
 
   <section class="section" id="prov">
     <div class="section-head"><div><h2>Данные и ограничения этого прогноза</h2></div></div>
     <div class="prov">
-      ${[["war25_onset", "Конфликты"], ["fxa", "Валюта, структурный"], ["fxm", "Валюта, месячный"], ["bank", "Банки"]].filter(([k]) => cur.contexts[k]).map(([k, t]) => { const c = cur.contexts[k];
-        return `<div><span>${t}: срез и данные</span><span>${k === "fxm" ? (crow.fx_as_of ? dateRu(crow.fx_as_of) : "нет среза") : dateRu(c.as_of)} · ${esc(c.source)}</span></div><div><span>Модель</span><span>${esc(c.model)}</span></div>`; }).join("")}
+      ${[["war25_onset", "Конфликты"], ["fxa", "Валюта, обвал за год"], ["fxm", "Валюта, скачок за месяц"], ["bank", "Банки"]].filter(([k]) => cur.contexts[k]).map(([k, t]) => { const c = cur.contexts[k];
+        return `<div><span>${t}: дата прогноза и данные</span><span>${k === "fxm" ? (crow.fx_as_of ? dateRu(crow.fx_as_of) : "нет даты прогноза") : dateRu(c.as_of)} · ${esc(c.source)}</span></div><div><span>Модель</span><span>${esc(c.model)}</span></div>`; }).join("")}
       <div><span>Лаг годовых макроданных</span><span>1 год: на 1 января известен только предыдущий год</span></div>
       <div><span>Лаг месячных резервов МВФ</span><span>${S.current.fx_monthly.reserves_lag} месяца</span></div>
       <div><span>Версия кода</span><span class="mono">${esc(S.manifest.code.commit.slice(0, 12))}${S.manifest.code.uncommitted_changes ? " + незакоммиченные правки" : ""}</span></div>
       <div><span>Данные собраны</span><span>${dateRu(S.manifest.generated_at.slice(0, 10))}</span></div>
     </div>
     <ul class="plain small">
-      <li>Интервал оценки отражает неопределённость коэффициентов модели и не учитывает ошибку её спецификации; это не интервал предсказания события.</li>
-      <li>Лаги публикации месячных рядов МВФ, кроме резервов (цены, деньги, экспорт, ставки), в моделях не учтены: у таких наблюдений стоит месяц среза.</li>
+      <li>Диапазон неопределённости отражает неопределённость коэффициентов модели и не учитывает ошибку её спецификации; это не интервал предсказания события.</li>
+      <li>Лаги публикации месячных рядов МВФ, кроме резервов (цены, деньги, экспорт, ставки), в моделях не учтены: у таких наблюдений стоит месяц даты прогноза.</li>
       <li>История оценок — ретроспективная проверка, а не прогнозы, опубликованные в то время.</li>
     </ul>
     <div class="links" style="margin-top:18px">
@@ -170,33 +172,33 @@ function history(d, hp) {
   };
   let y = 8;
   const add = (svg) => { panels.push(svg); y += 150; };
-  for (const [key, title, thr] of [["war25", "Конфликт, ≥ 25 погибших", "≥ 25"], ["war1000", "Конфликт, ≥ 1000 погибших", "≥ 1000"]]) {
+  for (const [key, title, thr] of [["war25", "Война, от 25 погибших", "от 25"], ["war1000", "Большая война, от 1000 погибших", "от 1000"]]) {
     const s = H[key];
     if (!s || (key === "war1000" && !s.some((r) => r[3] === 1) && Math.max(...s.map((r) => r[1])) < 0.02)) continue;
     const max = niceMax(Math.max(...s.map((r) => r[1])));
     add(frame(title, "начало ● · продолжение ○, не соединяются", "war", (yy) => s.map((r) => {
       const id = `${key}:${r[0]}`, on = hp === id;
-      if (on) info = `<b>${esc(title)}.</b> Выпуск ${r[0]}, срез ${dateRu(`${r[0]}-01-01`)} → целевой период ${r[0]}: оценка ${r[2] ? "начала" : "продолжения"} — <b class="num">${pct(r[1])}</b>. Исход: ${r[3] ? "государственная война в " + r[0] + " году была" : "государственной войны в " + r[0] + " году не было"}.`;
+      if (on) info = `<b>${esc(title)}.</b> Выпуск ${r[0]}, дата прогноза: ${dateRu(`${r[0]}-01-01`)} → период прогноза ${r[0]}: оценка ${r[2] ? "начала" : "продолжения"} — <b class="num">${pct(r[1])}</b>. Исход: ${r[3] ? "государственная война в " + r[0] + " году была" : "государственной войны в " + r[0] + " году не было"}.`;
       return `${on ? `<rect class="hp-win" x="${x(r[0])}" y="${y}" width="${x(r[0] + 1) - x(r[0])}" height="118"/>` : ""}<circle class="hp-pt ${r[2] ? "" : "open"}" data-hp="${id}" cx="${x(r[0] + 0.5)}" cy="${yy(r[1])}" r="${on ? 5 : 3.2}"><title>${r[0]}: ${pct(r[1])}</title></circle>`;
     }).join(""), y + 34, 62, max, (ty) => s.filter((r) => r[3]).map((r) => `<rect class="hp-ev" x="${x(r[0]) + 1}" y="${ty - 4}" width="${x(r[0] + 1) - x(r[0]) - 2}" height="8"/>`).join(""), `война ${thr}`));
   }
   if (H.fxa) {
     const s = H.fxa, max = niceMax(Math.max(...s.map((r) => r[1])));
-    add(frame("Валюта: структурный прогноз", "девальвация ≥ 25 % в одном из двух следующих лет", "fx", (yy) => s.map((r) => {
+    add(frame("Валюта: обвал курса за год", "девальвация ≥ 25 % в одном из двух следующих лет", "fx", (yy) => s.map((r) => {
       const id = `fxa:${r[0]}`, on = hp === id;
-      if (on) info = `<b>Валюта, структурный прогноз.</b> Выпуск ${r[0] + 1}, срез ${dateRu(`${r[0] + 1}-01-01`)} → целевой период ${r[0] + 1}–${r[0] + 2}: оценка <b class="num">${pct(r[1])}</b>. Исход: ${r[2] ? "девальвация ≥ 25 % в целевом периоде была" : "девальвации ≥ 25 % в целевом периоде не было"}.`;
+      if (on) info = `<b>Валюта, обвал курса за год.</b> Выпуск ${r[0] + 1}, дата прогноза: ${dateRu(`${r[0] + 1}-01-01`)} → период прогноза ${r[0] + 1}–${r[0] + 2}: оценка <b class="num">${pct(r[1])}</b>. Исход: ${r[2] ? "девальвация ≥ 25 % в периоде прогноза была" : "девальвации ≥ 25 % в периоде прогноза не было"}.`;
       return `${on ? `<rect class="hp-win" x="${x(r[0] + 1)}" y="${y}" width="${x(r[0] + 3) - x(r[0] + 1)}" height="118"/>` : ""}<circle class="hp-pt" data-hp="${id}" cx="${x(r[0] + 1)}" cy="${yy(r[1])}" r="${on ? 5 : 3.2}"><title>выпуск ${r[0] + 1}: ${pct(r[1])}</title></circle>`;
     }).join(""), y + 34, 62, max, (ty) => (H.fxa_events ?? []).map((r) => `<rect class="hp-ev" x="${x(r[0]) + 1}" y="${ty - 4}" width="${x(r[0] + 1) - x(r[0]) - 2}" height="8"><title>${r[0]}: курс +${num(r[1], 0)} % за год</title></rect>`).join(""), "девальвация ≥ 25 %"));
   }
   if (H.fxm) {
     const s = H.fxm, max = niceMax(Math.max(...s.map((r) => r[1])));
-    add(frame("Валюта: месячный обвал", "скачок курса ≥ 15 % за месяц в следующие 12 месяцев", "fx", (yy) => {
+    add(frame("Валюта: скачок курса за месяц", "скачок курса ≥ 15 % за месяц в следующие 12 месяцев", "fx", (yy) => {
       // ряд месячный; там, где страна выпадала из оценки, линия рвётся — пропуски не соединяются
       let dd = "", prev = null;
       for (const r of s) { const t = +r[0].slice(0, 4) * 12 + +r[0].slice(5, 7); dd += `${prev !== null && t - prev === 1 ? "L" : "M"}${mx(r[0]).toFixed(1)} ${yy(r[1]).toFixed(1)}`; prev = t; }
       let mark = "";
       if (hk === "fxm") { const r = s.find((z) => z[0] === hv); if (r) { const end = `${+hv.slice(0, 4) + 1}-${hv.slice(5, 7)}`;
-        info = `<b>Валюта, месячный обвал.</b> Срез ${dateRu(hv)} → целевой период 12 месяцев, по ${dateRu(end)}: оценка <b class="num">${pct(r[1])}</b>. Исход: ${r[2] ? "скачок курса ≥ 15 % в окне был" : "скачка курса ≥ 15 % в окне не было"}.`;
+        info = `<b>Валюта, скачок курса за месяц.</b> Дата прогноза: ${dateRu(hv)} → период прогноза 12 месяцев, по ${dateRu(end)}: оценка <b class="num">${pct(r[1])}</b>. Исход: ${r[2] ? "скачок курса ≥ 15 % в окне был" : "скачка курса ≥ 15 % в окне не было"}.`;
         mark = `<rect class="hp-win" x="${mx(hv)}" y="${y}" width="${x(1) - x(0)}" height="118"/><circle class="hp-pt" cx="${mx(hv)}" cy="${yy(r[1])}" r="5"/>`; } }
       return `<path class="hp-line" d="${dd}"/>${mark}${s.filter((_, i) => i % 3 === 0).map((r) => `<rect data-hp="fxm:${r[0]}" x="${mx(r[0]) - 1.5}" y="${y + 30}" width="3.2" height="70" fill="transparent" style="cursor:pointer"><title>${dateRu(r[0])}: ${pct(r[1])}</title></rect>`).join("")}`;
     }, y + 34, 62, max, (ty) => (H.fxm_events ?? []).map((m) => `<circle class="hp-ev" cx="${mx(m)}" cy="${ty}" r="3.5"><title>${dateRu(m)}: скачок курса ≥ 15 %</title></circle>`).join(""), "скачок ≥ 15 %"));
@@ -205,17 +207,17 @@ function history(d, hp) {
     const s = H.bank, max = niceMax(Math.max(...s.map((r) => r[1])));
     add(frame("Банки: системный кризис", "кризис в одном из двух следующих лет", "bank", (yy) => s.map((r) => {
       const id = `bank:${r[0]}`, on = hp === id;
-      if (on) info = `<b>Банковский прогноз.</b> Выпуск ${r[0] + 1} → целевой период ${r[0] + 1}–${r[0] + 2}: оценка <b class="num">${pct(r[1])}</b>. Исход: ${r[2] ? "год отмечен как предкризисный" : "кризиса в целевом периоде не отмечено"}.`;
+      if (on) info = `<b>Банковский прогноз.</b> Выпуск ${r[0] + 1} → период прогноза ${r[0] + 1}–${r[0] + 2}: оценка <b class="num">${pct(r[1])}</b>. Исход: ${r[2] ? "год отмечен как предкризисный" : "кризиса в периоде прогноза не отмечено"}.`;
       return `${on ? `<rect class="hp-win" x="${x(r[0] + 1)}" y="${y}" width="${x(r[0] + 3) - x(r[0] + 1)}" height="118"/>` : ""}<circle class="hp-pt" data-hp="${id}" cx="${x(r[0] + 1)}" cy="${yy(r[1])}" r="${on ? 5 : 3.2}"/>`;
     }).join(""), y + 34, 62, max, (ty) => s.filter((r) => r[2]).map((r) => `<rect class="hp-ev" x="${x(r[0] + 1)}" y="${ty - 4}" width="${x(r[0] + 3) - x(r[0] + 1)}" height="8" opacity=".55"/>`).join(""), "окно кризиса"));
   }
   if (!panels.length) return `<p class="muted">Исторических оценок вслепую для этой страны нет: ни одна модель не оценивала её в прошлые годы.</p>`;
   const years = []; for (let t = 1996; t <= 2026; t += 5) years.push(t);
-  const missing = [["fxa", "структурного валютного прогноза"], ["fxm", "месячного валютного прогноза"], ["bank", "банковского прогноза"]].filter(([k]) => !H[k]).map(([, t]) => t);
+  const missing = [["fxa", "прогноза обвала курса за год"], ["fxm", "прогноза скачка курса за месяц"], ["bank", "банковского прогноза"]].filter(([k]) => !H[k]).map(([, t]) => t);
   return `<svg viewBox="0 0 ${W} ${y + 22}" role="img" aria-label="История оценок вслепую и зарегистрированных событий">
       ${years.map((t) => `<line class="hp-grid" x1="${x(t)}" x2="${x(t)}" y1="0" y2="${y}" stroke-dasharray="2 4"/><text class="hp-axis" x="${x(t)}" y="${y + 14}" text-anchor="middle">${t}</text>`).join("")}
       ${panels.join("")}</svg>
-    <p class="plate" style="margin-top:10px">${info || "Нажмите на точку — подсветится её целевое окно и появится исход. Тёмные отметки на нижней дорожке — зарегистрированные события."}</p>
+    <p class="plate" style="margin-top:10px">${info || "Нажмите на точку — подсветится её окно прогноза и появится исход. Тёмные отметки на нижней дорожке — зарегистрированные события."}</p>
     ${missing.length ? `<p class="small faint" style="margin-top:8px">Нет истории: ${esc(missing.join(", "))} — модель не оценивала страну в прошлые годы.</p>` : ""}`;
 }
 
@@ -224,20 +226,27 @@ function factors(d, key) {
   const b = d.factors[key], t = d.inputs[key];
   if (t) {
     return `<p class="plate"><b>${esc(t.model)}.</b> ${esc(t.note)} Оценка: <span class="num">${pct(t.p)}</span> · ${state("no_interval")}</p>
-      <table class="factors" style="margin-top:12px"><thead><tr><th>Входное наблюдение</th><th>Значение</th><th>Дата наблюдения</th><th>Источник</th></tr></thead><tbody>
+      <table class="factors" style="margin-top:12px"><thead><tr><th scope="col">Входное наблюдение</th><th scope="col">Значение</th><th scope="col">Дата наблюдения</th><th scope="col">Источник</th></tr></thead><tbody>
       ${t.inputs.map((f) => `<tr class="${f.value === null ? "none" : ""}"><td>${esc(f.label)}</td><td class="num obs">${obs(f)}</td><td class="dt">${when(f)}</td><td class="dt">${esc(f.source)}</td></tr>`).join("")}</tbody></table>`;
   }
   if (b.kind !== "logit") return `<p class="plate">${esc(b.note)}</p>`;
   const fs = [...b.features].sort((a, c) => Math.abs(c.contrib) - Math.abs(a.contrib));
   const maxAbs = Math.max(...fs.map((f) => Math.abs(f.contrib)), 0.01);
-  return `<div class="ctx" style="margin-bottom:10px"><b>${esc(b.model)}</b> · оценка <b class="num">${pct(b.p)}</b>, интервал <span class="num">${num(100 * b.lo, 1)}–${num(100 * b.hi, 1)} %</span> · обучение: ${b.n_train.toLocaleString("ru-RU")} наблюдений, базовая частота ${pct(b.base_rate)}</div>
-    <table class="factors"><thead><tr><th>Признак</th><th>← снижает оценку · повышает →</th><th>Вклад, лог-шансы</th><th>Наблюдение</th><th>Дата наблюдения</th></tr></thead><tbody>
+  const main = fs.filter((f) => f.value !== null && !f.key.endsWith("_missing") && !f.label.startsWith("Флаг") && !(f.unit === "флаг" && !f.value) && Math.abs(f.contrib) >= 0.05).slice(0, 5);
+  const side = (list) => (list.length ? `<ul class="plain">${list.map((f) => `<li><b>${esc(f.label)}</b> — ${esc(featValue(f))}${f.date ? ` <span class="tiny faint">(${dateRu(f.date)})</span>` : ""}</li>`).join("")}</ul>`
+    : `<p class="small muted" style="margin-top:8px">Среди главных признаков таких нет.</p>`);
+  return `<div class="two shift"><div><div class="eyebrow">Сдвигает оценку вниз</div>${side(main.filter((f) => f.contrib < 0))}</div>
+      <div><div class="eyebrow">Сдвигает оценку вверх</div>${side(main.filter((f) => f.contrib > 0))}</div></div>
+    <p class="small muted" style="margin-top:12px;max-width:80ch">Показаны ${main.length} из ${fs.length} признаков модели с наибольшим вкладом. Это описание расчёта, а не причин будущего события.</p>
+    <details class="more" style="margin-top:14px"><summary>Все признаки и величина вклада</summary>
+    <div class="ctx" style="margin:10px 0"><b>${esc(b.model)}</b> · оценка <b class="num">${pct(b.p)}</b>, интервал <span class="num">${num(100 * b.lo, 1)}–${num(100 * b.hi, 1)} %</span> · обучение: ${b.n_train.toLocaleString("ru-RU")} наблюдений, обычный уровень ${pct(b.base_rate)}</div>
+    <table class="factors"><thead><tr><th scope="col">Признак</th><th scope="col">← снижает оценку · повышает →</th><th scope="col">Вклад, лог-шансы</th><th scope="col">Наблюдение</th><th scope="col">Дата наблюдения</th></tr></thead><tbody>
     ${fs.map((f) => `<tr class="${f.value === null ? "none" : ""}"><td>${esc(f.label)}</td><td class="bar">${factorBar(f.contrib, maxAbs)}</td><td class="num">${signed(f.contrib, 2)}</td>
       <td class="num obs">${obs(f)}</td><td class="dt">${when(f)}</td></tr>`).join("")}
     <tr><td colspan="2" class="muted">Свободный член модели</td><td class="num">${signed(b.intercept, 2)}</td><td colspan="2" class="dt">уровень при средних значениях всех признаков</td></tr>
     <tr><td colspan="2"><b>Сумма: лог-шансы прогноза</b></td><td class="num"><b>${signed(b.eta, 2)}</b></td><td colspan="2" class="dt">соответствует вероятности ${pct(b.p)}</td></tr>
     </tbody></table>
-    <p class="small faint" style="margin-top:10px;max-width:90ch">Вклад — произведение коэффициента на стандартизованное значение признака, в лог-шансах, а не в процентных пунктах вероятности. Ноль означает, что значение равно среднему по обучающей выборке. Вклады складываются только на шкале лог-шансов.</p>`;
+    <p class="small faint" style="margin-top:10px;max-width:90ch">Вклад — произведение коэффициента на стандартизованное значение признака, в лог-шансах, а не в процентных пунктах вероятности. Ноль означает, что значение равно среднему по обучающей выборке. Вклады складываются только на шкале лог-шансов.</p></details>`;
 }
 function obs(f) {
   if (f.value === null) return `<span class="st st-nodata">Нет наблюдения</span>`;

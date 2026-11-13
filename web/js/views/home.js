@@ -2,7 +2,7 @@
 import { S, load, release, esc, pct, pctRange, dateRu, href, nameOf, isPS, state, stateText, strip, stripLegend, ribbon,
   niceMax, DOMAIN_FULL, setQuery, low } from "../lib.js";
 
-const RIBBONS = { war25: "Начало конфликта", fxa: "Девальвация ≥ 25 %" };
+const RIBBONS = { war25: "Начало войны", fxa: "Обвал курса за год" };
 const DOM = { war25: "war", fxa: "fx" };
 
 export async function home(el, _parts, q) {
@@ -40,7 +40,7 @@ export async function home(el, _parts, q) {
     </div>
     <div class="grid">
       <div class="c8 ribbon">
-        <div class="ctx" style="margin-bottom:8px"><span class="tag dark">Ретроспективная OOS-проверка</span>
+        <div class="ctx" style="margin-bottom:8px"><span class="tag dark">Проверка на прошлом, вслепую</span>
           &nbsp; событие: <b>${esc(rib.event)}</b> · горизонт ${esc(rib.horizon)} · выпуски ${rib.years[0].as_of.slice(0, 4)}–${rib.years.at(-1).as_of.slice(0, 4)}</div>
         ${ribbon(rib, sel)}
         <p class="small faint" style="margin-top:6px">Положение в рейтинге не равно вероятности события. Год слева — год выпуска: оценка сделана на 1 января этого года по данным, доступным к этой дате.</p>
@@ -49,7 +49,7 @@ export async function home(el, _parts, q) {
     </div>
     <p class="small muted" style="margin-top:14px;max-width:80ch">Вероятность 25 % допускает отсутствие события. Качество вероятностей проверяется по совокупности прогнозов. <a href="${href("check")}">Открыть полную проверку</a></p>
     <div class="cases"><span class="small faint">Разобрать исторический случай:</span>
-      ${cur.cases.map((c) => `<a class="chip" href="${href("", { oos: c.contour, y: c.release, id: c.iso3 })}" aria-pressed="${sel && c.contour === contour && sel.y === c.release && sel.id === c.iso3}">${esc(c.title)}</a>`).join("")}
+      ${cur.cases.map((c) => `<a class="chip" href="${href("", { oos: c.contour, y: c.release, id: c.iso3 })}" ${sel && c.contour === contour && sel.y === c.release && sel.id === c.iso3 ? 'aria-current="true"' : ""}>${esc(c.title)}</a>`).join("")}
     </div>
   </section>
 
@@ -59,15 +59,15 @@ export async function home(el, _parts, q) {
       <div class="ctx" style="text-align:right">Последний публичный выпуск: <b>${lastV ? dateRu(lastV) : "нет"}</b><br>Текущий расчёт: ${dateRu(cur.release.calculated)}, ещё не заморожен</div>
     </div>
     ${nowRow("war", "Начало и продолжение оцениваются отдельно. Два порога интенсивности.",
-      `Оценены ${cov.war.estimated} стран · неприменимо ${cov.war.not_applicable} · нет оценки ${cov.war.no_estimate}`,
+      `Оценены ${cov.war.estimated} стран · не оценивается ${cov.war.not_applicable} · нет оценки ${cov.war.no_estimate}`,
       `начало — ${cov.war.at_risk} стран без войны, продолжение — ${cov.war.at_war} воюющих`,
       [["Смотреть начало конфликта", { domain: "war", event: "war25_onset" }], ["Продолжение", { domain: "war", event: "war25_cont" }]])}
-    ${nowRow("fx", "Структурный прогноз, риск резкого месячного обвала и текущее давление.",
-      `Оценены ${cov.fx.estimated} стран · неприменимо ${cov.fx.not_applicable} · нет оценки ${cov.fx.no_estimate}`,
-      `структурный прогноз; месячный обвал и давление — ${cov.fx.monthly} стран`,
+    ${nowRow("fx", "Обвал курса за год, резкий скачок за месяц и давление на валюту сейчас.",
+      `Оценены ${cov.fx.estimated} стран · не оценивается ${cov.fx.not_applicable} · нет оценки ${cov.fx.no_estimate}`,
+      `обвал за год; скачок за месяц и давление — ${cov.fx.monthly} стран`,
       [["Смотреть валютные оценки", { domain: "fx", event: "fxa" }]])}
     ${nowRow("bank", "Прогноз на основе кредитного цикла и кривой доходности.",
-      `Оценены ${cov.bank.estimated} стран · неприменимо ${cov.bank.not_applicable} · нет оценки ${cov.bank.no_estimate}`,
+      `Оценены ${cov.bank.estimated} стран · не оценивается ${cov.bank.not_applicable} · нет оценки ${cov.bank.no_estimate}`,
       Object.entries(cov.bank.by_status).filter(([k]) => k !== "ok").map(([k, n]) => `${low(stateText(k))} — ${n}`).join(", "),
       [["Смотреть банковские оценки", { domain: "bank", event: "bank" }]])}
   </section>
@@ -89,8 +89,8 @@ export async function home(el, _parts, q) {
   <section class="section" id="how">
     <div class="section-head"><h2>Как устроена проверка</h2></div>
     <div class="method3">
-      <p><b>Обучение на прошлом.</b>Для каждого исторического среза обучение ограничено информацией, допустимой по протоколу на эту дату, включая лаги публикации источников.</p>
-      <p><b>Проверка вероятностей.</b>Мы рассматриваем все прогнозы, калибровку и сравнение с наивной базой.</p>
+      <p><b>Обучение на прошлом.</b>Для каждой исторической даты прогноза обучение ограничено информацией, допустимой по протоколу на эту дату, включая лаги публикации источников.</p>
+      <p><b>Проверка вероятностей.</b>Мы рассматриваем все прогнозы, калибровку и сравнение с простым правилом.</p>
       <p><b>Отдельный публичный архив.</b>Опубликованные прогнозы сохраняются как самостоятельные выпуски; исходы добавляются с указанием источника и версии.</p>
     </div>
     <div class="links" style="margin-top:22px"><a href="${href("method")}">Прочитать метод</a><a href="${href("method", { s: "limits" })}">Посмотреть ограничения</a><a href="${href("method", { s: "data" })}">Открыть данные</a></div>
@@ -114,13 +114,13 @@ function side(rib, contour, sel) {
   return `<div class="card">
     <div class="eyebrow">Исторический выпуск · проверка вслепую</div>
     <h3 style="margin-top:6px">${esc(nameOf(id))} · выпуск ${yr.as_of.slice(0, 4)}</h3>
-    <p class="small muted">срез ${dateRu(yr.as_of)}</p>
+    <p class="small muted">дата прогноза: ${dateRu(yr.as_of)}</p>
     <div class="big num" style="margin-top:10px">${pct(p)}</div>
     <dl class="kv">
       <dt>Прогноз</dt><dd class="num">${pct(p)}</dd>
       <dt>Интервал</dt><dd>${lo != null ? `<span class="num">${pctRange(lo, hi)}</span>` : state("no_interval")}</dd>
       <dt>Место</dt><dd class="num">${rank} из ${yr.n}</dd>
-      <dt>Целевой период</dt><dd class="num">${esc(yr.target)}</dd>
+      <dt>Период прогноза</dt><dd class="num">${esc(yr.target)}</dd>
       <dt>Исход</dt><dd>${out ? "<b>событие наступило</b>" : "событие не наступило"}</dd>
     </dl>
     <a class="btn ghost sm" href="${href(`record/oos/${contour}/${yr.release}/${id}`)}">Разобрать этот прогноз</a>
@@ -149,9 +149,9 @@ function lensStrip(rel, ev, dom, lens) {
   const lensState = lens && !pts.some((p) => p.id === lens) ? rel.rows.get(lens).est[ev]?.status : null;
   return `<div class="strip dom-${dom}">
     <h3><span class="dot"></span>${esc(c.title)}</h3>
-    <div class="ctx">событие: <b>${esc(c.event)}</b> · срез ${dateRu(c.as_of)} · целевой период <b>${esc(c.target_period)}</b> · в мировой выборке ${pts.length} стран</div>
+    <div class="ctx">событие: <b>${esc(c.event)}</b> · дата прогноза: ${dateRu(c.as_of)} · период прогноза <b>${esc(c.target_period)}</b> · в мировой выборке ${pts.length} стран</div>
     ${strip(pts, { max, sel: lens })}
     ${lensState ? `<p class="small" style="margin-top:4px">${esc(nameOf(lens))}: ${state(lensState, { link: href("forecasts", { domain: "war", event: "war25_cont" }) })}</p>` : ""}
-    <p class="small muted num" style="margin-top:6px">С оценкой: ${ps.ok.length} из 15 · неприменимо: ${ps.na.length} · нет оценки: ${ps.no.length}${why ? ` <span class="faint">(${esc(why)})</span>` : ""}${ps.grp.length ? ` · идёт конфликт, оценивается продолжение: ${ps.grp.length} <span class="faint">(${esc(ps.grp.map(([i]) => nameOf(i)).join(", "))})</span>` : ""}</p>
+    <p class="small muted num" style="margin-top:6px">С оценкой: ${ps.ok.length} из 15 · не оценивается: ${ps.na.length} · нет оценки: ${ps.no.length}${why ? ` <span class="faint">(${esc(why)})</span>` : ""}${ps.grp.length ? ` · идёт конфликт, оценивается продолжение: ${ps.grp.length} <span class="faint">(${esc(ps.grp.map(([i]) => nameOf(i)).join(", "))})</span>` : ""}</p>
   </div>`;
 }

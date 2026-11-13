@@ -7,7 +7,7 @@ const cache = new Map();
 export function load(name) {
   if (!cache.has(name)) {
     cache.set(name, fetch(`data/${name}`).then((r) => {
-      if (!r.ok) throw new Error(`Не найден файл data/${name}. Соберите данные командой «make web».`);
+      if (!r.ok) throw new Error(`Не найден файл data/${name}. Попробуйте обновить страницу; если не помогло, данные сайта нужно собрать заново (команда «make web»).`);
       return r.json();
     }));
   }
@@ -44,6 +44,23 @@ export function pct(p) {
   return `${num(v, v < 0.1 ? 2 : 1)}${NB}%`;
 }
 export const pctRange = (lo, hi) => `${num(100 * lo, 100 * lo < 0.1 ? 2 : 1)}–${num(100 * hi, 1)}${NB}%`;
+const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many);
+/** Вероятность словами: 0,016 → «1 шанс из 60». Округление грубое намеренно: это ориентир, точное число стоит рядом. */
+export function odds(p) {
+  if (p === null || p === undefined) return null;
+  if (p >= 0.95) return "больше 9 шансов из 10";
+  if (p >= 0.2) { const k = Math.round(p * 10); return `${k} ${plural(k, "шанс", "шанса", "шансов")} из 10`; }
+  const n = 1 / p;
+  if (n >= 1000) return "меньше 1 шанса из 1000";
+  const r = n < 20 ? Math.round(n) : n < 100 ? Math.round(n / 5) * 5 : Math.round(n / 50) * 50;
+  return `1 шанс из ${r}`;
+}
+/** Строка «много это или мало»: шансы и обычный уровень (базовая частота события), без оценочных ступеней. */
+export function oddsLine(e) {
+  if (e?.p === undefined) return "";
+  const base = e.base_rate != null ? ` Обычный уровень — ${odds(e.base_rate)}: так часто это событие случалось в прошлых данных модели.` : "";
+  return `Примерно ${odds(e.p)}.${base}`;
+}
 export const signed = (x, d = 2) => (x > 0 ? "+" : "") + num(x, d);
 
 /** «2026-09» → «сентябрь 2026», «2026-01-01» → «1 января 2026», «2025» → «2025». */
@@ -70,7 +87,7 @@ export function natural(spec, v) {
   return { value, unit };
 }
 export const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-/** Строчная первая буква — без порчи аббревиатур («Нет ряда BIS» → «нет ряда BIS»). */
+/** Строчная первая буква — без порчи аббревиатур («Нет данных о кредите (BIS)» → «нет данных о кредите (BIS)»). */
 export const low = (s) => (s && !/^[A-ZА-ЯЁ]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
 
 // ---------------------------------------------------------------- адрес и состояние
@@ -108,15 +125,15 @@ export const ARCHIVE_EVENT = {
   war25: ["Государственный вооружённый конфликт, ≥ 25 погибших", "Государственный вооружённый конфликт: ≥ 25 погибших за год на своей территории или у соседа, где страна — сторона"],
   war1000: ["Государственный вооружённый конфликт, ≥ 1000 погибших", "Государственный вооружённый конфликт высокой интенсивности: ≥ 1000 погибших за год"],
   fxa: ["Девальвация ≥ 25 % за год", "Девальвация ≥ 25 % за год (курс к доллару, декабрь к декабрю) после ≥ 2 спокойных лет"],
-  fxa_tree: ["Девальвация ≥ 25 % за год, модель на деревьях", "Девальвация ≥ 25 % за год (курс к доллару, декабрь к декабрю) после ≥ 2 спокойных лет"],
+  fxa_tree: ["Девальвация ≥ 25 % за год, вторая модель", "Девальвация ≥ 25 % за год (курс к доллару, декабрь к декабрю) после ≥ 2 спокойных лет"],
   fxm: ["Скачок курса ≥ 15 % за месяц", "Скачок курса к доллару ≥ 15 % за один месяц (первый после ≥ 12 спокойных месяцев)"],
-  fxm_live: ["Скачок курса ≥ 15 % за месяц, модель-претендент", "Скачок курса к доллару ≥ 15 % за один месяц (первый после ≥ 12 спокойных месяцев)"],
-  bank: ["Системный банковский кризис", "Системный банковский кризис в одном из двух лет целевого периода (по метке Bluwstein и др.)"],
+  fxm_live: ["Скачок курса ≥ 15 % за месяц, новая модель на испытании", "Скачок курса к доллару ≥ 15 % за один месяц (первый после ≥ 12 спокойных месяцев)"],
+  bank: ["Системный банковский кризис", "Системный банковский кризис в одном из двух лет периода прогноза (по метке Bluwstein и др.)"],
 };
 export const archiveKey = (column) => (/^p_state_war1000_/.test(column) ? "war1000" : ARCHIVE_MAP.find(([re]) => re.test(column))?.[1]);
-/** Целевой период архивной оценки — словами, без служебных обозначений. */
+/** Период прогноза архивной оценки — словами, без служебных обозначений. */
 export function archiveWindow(v, m) {
-  if (m.family === "fxm") return "12 месяцев после даты среза страны";
+  if (m.family === "fxm") return "12 месяцев после даты прогноза страны";
   return Object.values(v.records[m.column])[0]?.window ?? m.window;
 }
 
@@ -132,7 +149,7 @@ export function release(id = "current") {
     const c = S.current;
     return { id: "current", archived: false, label: `Текущий расчёт · ${dateRu(c.release.calculated)}`, published: null,
       calculated: c.release.calculated, note: c.release.note, rows: new Map(c.rows.map((r) => [r.iso3, r])), contexts: c.contexts,
-      baseLabel: "Базовая частота в обучающей выборке" };
+      baseLabel: "Обычный уровень: частота события в обучающей выборке" };
   }
   const v = S.archive.vintages.find((x) => x.vintage === id);
   const cur = S.current.contexts;
@@ -177,7 +194,7 @@ export function release(id = "current") {
     mk(key, n);
   }
   return { id, archived: true, label: `Выпуск ${dateRu(id)}`, published: v.published, vintage: v, rows, contexts,
-    baseLabel: "Базовая частота в проверке вслепую" };
+    baseLabel: "Обычный уровень: частота события в проверке вслепую" };
 }
 
 /** Событие «своей группы» страны в домене конфликтов: начало или продолжение. */
@@ -194,7 +211,7 @@ export const STATE_KIND = {
   no_interval: "text", ongoing: "text", awaiting: "text",
 };
 export function stateText(status) {
-  if (status?.startsWith("shared:")) return `${status.slice(7)} · неприменимо`;
+  if (status?.startsWith("shared:")) return `не оценивается: общая валюта (${status.slice(7)})`;
   return S.current.status_text[status] ?? status;
 }
 export function stateDetail(status) {
@@ -207,7 +224,7 @@ export function stateDetail(status) {
 /** Единый компонент состояния. Текст причины виден сразу, без наведения. */
 export function state(status, { detail = false, link = null } = {}) {
   let html;
-  if (status?.startsWith("shared:")) html = `<span class="st st-na"><b>${esc(status.slice(7))}</b>неприменимо</span>`;
+  if (status?.startsWith("shared:")) html = `<span class="st st-na"><b>${esc(status.slice(7))}</b>общая валюта</span>`;
   else {
     const kind = STATE_KIND[status] ?? "nodata";
     const text = esc(stateText(status));
@@ -220,13 +237,13 @@ export function state(status, { detail = false, link = null } = {}) {
 export function statesLegend() {
   const items = [
     ["<span class=\"num\" style=\"font-weight:500\">1,0&nbsp;%</span>", "Низкая вероятность — это число. Она показывается точкой на шкале, как любая другая оценка."],
-    [state("shared:EUR"), "Неприменимо: у страны общая или чужая валюта, прогноза обвала собственной валюты нет."],
+    [state("shared:EUR"), "Не оценивается: у страны общая или чужая валюта, прогноза обвала собственной валюты нет."],
     [state("no_bis_credit"), "Нет данных, на которых построена модель. Штриховка всегда означает отсутствие ряда, а не низкий риск."],
     [state("no_imf_fx"), "Нет курса валюты в данных МВФ."],
     [state("no_yield_curve") + " " + state("no_broad_money"), "Нет рыночных ставок или собственной денежной массы для банковской модели."],
     [state("other_group"), "Страна относится к другой условной группе и в числовой рейтинг начала не входит."],
     [state("no_interval"), "Оценка показана без диапазона: для этой модели или этого выпуска интервал не определён."],
-    [state("ongoing"), "Целевой период не закончился — исхода ещё нет."],
+    [state("ongoing"), "Период прогноза не закончился — исхода ещё нет."],
     [state("awaiting"), "Период закончился, но данные наблюдений ещё не вышли."],
   ];
   return `<div class="states-legend">${items.map(([a, b]) => `<div>${a}<div>${esc(b)}</div></div>`).join("")}</div>`;
@@ -257,9 +274,9 @@ export function estCell(e, max, { sub = "", link = null, observed = false } = {}
   return `<div class="est"><span class="v num">${pct(e.p)}</span>${miniScale(e, max)}${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
 }
 export const scaleLegend = () => `<div class="legend" aria-label="Как читать мини-шкалу">
-  <span><svg viewBox="0 0 26 12"><line class="ms-axis" x1="0" x2="26" y1="6" y2="6"/><circle class="ms-dot" cx="13" cy="6" r="3.4"/></svg>оценка вероятности</span>
-  <span><svg viewBox="0 0 26 12"><line class="ms-ci" x1="2" x2="24" y1="6" y2="6"/></svg>интервал оценки, если рассчитан</span>
-  <span><svg viewBox="0 0 26 12"><line class="ms-axis" x1="0" x2="26" y1="6" y2="6"/><line class="ms-base" x1="13" x2="13" y1="0" y2="12"/></svg>базовая частота</span>
+  <span><svg viewBox="0 0 26 12"><line class="ms-axis" x1="0" x2="26" y1="6" y2="6"/><circle class="ms-dot" cx="13" cy="6" r="3.4"/></svg>вероятность</span>
+  <span><svg viewBox="0 0 26 12"><line class="ms-ci" x1="2" x2="24" y1="6" y2="6"/></svg>диапазон неопределённости, если рассчитан</span>
+  <span><svg viewBox="0 0 26 12"><line class="ms-axis" x1="0" x2="26" y1="6" y2="6"/><line class="ms-base" x1="13" x2="13" y1="0" y2="12"/></svg>обычный уровень</span>
 </div>`;
 export const interval = (e) => (e.lo !== undefined ? `<span class="num">${pctRange(e.lo, e.hi)}</span>` : state("no_interval"));
 
@@ -268,8 +285,8 @@ export function ctxLine(rel, ev, { asOf = null } = {}) {
   const c = rel.contexts[ev];
   if (!c) return "";
   const when = asOf ?? c.as_of;
-  const cut = c.as_of_per_country && !asOf ? `срезы стран ${dateRu(when.split(" … ")[0])} – ${dateRu(when.split(" … ").pop())}` : `срез ${dateRu(when)}`;
-  const period = c.target_period ? ` · целевой период <b>${esc(c.target_period)}</b>` : "";
+  const cut = c.as_of_per_country && !asOf ? `даты прогноза по странам: ${dateRu(when.split(" … ")[0])} – ${dateRu(when.split(" … ").pop())}` : `дата прогноза: ${dateRu(when)}`;
+  const period = c.target_period ? ` · период прогноза <b>${esc(c.target_period)}</b>` : "";
   return `<div class="ctx">${esc(rel.label)} · ${esc(cut)} · событие: <b>${esc(c.event)}</b>${period}</div>`;
 }
 
@@ -302,7 +319,7 @@ export function strip(points, { max, sel = null, w = 760, r = 3, label = "Вер
     ${order.map((p) => `<circle class="${cls(p)}" data-id="${p.id}" cx="${p.cx}" cy="${base - p.k * 2 * r}" r="${p.id === sel ? r + 1.2 : r}"><title>${esc(nameOf(p.id))}</title></circle>`).join("")}
     <line class="sp-axis" x1="${padL}" x2="${w - padR}" y1="${base + r + 4}" y2="${base + r + 4}"/>
     ${ticks.map((t) => `<line class="sp-axis" x1="${x(t)}" x2="${x(t)}" y1="${base + r + 4}" y2="${base + r + 8}"/><text class="sp-lbl" x="${x(t)}" y="${base + r + 20}" text-anchor="middle">${num(100 * t, 0)}</text>`).join("")}
-    <text class="sp-lbl" x="${padL}" y="${base + r + 35}">${esc(label)} · шкала квадратного корня, общая для всех стран</text>
+    <text class="sp-lbl" x="${padL}" y="${base + r + 35}">${esc(label)} · шкала растянута у нуля, общая для всех стран</text>
   </svg>`;
 }
 export const stripLegend = (dom = "war") => `<div class="legend dom-${dom}">

@@ -10,7 +10,7 @@
   2. заново обучает ТЕ ЖЕ четыре логит-модели теми же функциями (`model_hist`, `econ_long`,
      `econ_kr`, `econ_csd`), сверяет вероятности с витриной (расхождение — ошибка, а не
      предупреждение) и снимает с них то, чего в таблицах нет: вклады признаков `β·z` в
-     лог-шансах и 95 % интервал оценки (`publish/explain.py`);
+     лог-шансах и 95 % диапазон неопределённости (`publish/explain.py`);
   3. у каждого наблюдения ставит фактическую дату с учётом лагов публикации (`core/temporal.py`).
 
 Правила честности (тесты — `tests/test_web_export.py`):
@@ -163,7 +163,7 @@ SOURCES = {
 }
 
 STATUS_TEXT = {  # единый словарь состояний (раздел 6 ТЗ): код → текст на экране
-    "no_bis_credit": "Нет ряда BIS",
+    "no_bis_credit": "Нет данных о кредите (BIS)",
     "no_yield_curve": "Нет рыночного ряда",
     "no_broad_money": "Нет ряда денежной массы",
     "no_imf_fx": "Нет валютного ряда",
@@ -172,8 +172,8 @@ STATUS_TEXT = {  # единый словарь состояний (раздел 
     "no_estimate_period": "Нет оценки на этот период",
     "other_group": "Идёт конфликт · посмотреть продолжение",
     "no_conflict": "Конфликта нет · посмотреть начало",
-    "no_interval": "Интервал не рассчитан",
-    "ongoing": "Целевой период ещё идёт",
+    "no_interval": "Диапазон не рассчитан",
+    "ongoing": "Период прогноза ещё идёт",
     "awaiting": "Ожидаются данные об исходе",
 }
 STATUS_DETAIL = {
@@ -181,9 +181,9 @@ STATUS_DETAIL = {
     "no_yield_curve": "Страна есть в кредитной статистике BIS, но в данных нет длинной или короткой рыночной ставки: наклон кривой доходности посчитать не на чем.",
     "no_broad_money": "Длинная ставка есть, но у страны нет собственного ряда денежной массы (общая валюта).",
     "no_imf_fx": "Валюта у страны своя, но её курса нет в данных МВФ — прогноз посчитать не на чем.",
-    "no_recent_fx": "Месячный курс МВФ по стране кончается раньше допустимой даты среза — свежего прогноза нет.",
+    "no_recent_fx": "Месячный курс МВФ по стране кончается раньше допустимой даты прогноза — свежего прогноза нет.",
     "out_of_sample": "Модель не оценивает годы сразу после инфляции выше 100 % и годы, когда большая девальвация уже идёт.",
-    "no_estimate_period": "На этот целевой период у страны не хватило входных данных.",
+    "no_estimate_period": "На этот период прогноза у страны не хватило входных данных.",
     "other_group": "Страна уже воюет: вопрос «начнётся ли» к ней не относится. Для неё оценивается продолжение конфликта.",
     "no_conflict": "В стране нет государственной войны: для неё оценивается начало, а не продолжение.",
 }
@@ -541,7 +541,7 @@ def build_current(risk: pd.DataFrame) -> tuple[dict, dict, dict]:
         rr = res_row.get(iso)
         ctx = {"m": as_of_by[iso], "res_lag": res_lag, "reer_month": reer_month.get(iso),
                "res_month": None if rr is None else rr - res_lag, "res_stale": rr is not None and rr < as_of_by[iso]}
-        dossier[iso]["factors"]["fxm_live"] = factor_block(r, ctx, f"econ_csd live_fx_swap · логрегрессия, C = {live_C:g} (модель-претендент)",
+        dossier[iso]["factors"]["fxm_live"] = factor_block(r, ctx, f"econ_csd live_fx_swap · логрегрессия, C = {live_C:g} (новая модель на испытании)",
                                                            {"peg_resfall": "peg_resfall_missing", "reer_gap": "reer_missing", "reer_peg": "reer_missing"})
     # давление за последние месяцы — для мини-графика досье
     tail = mp[mp.iso3.isin(test.iso3)].merge(test[["iso3", "as_of"]], on="iso3")
@@ -661,43 +661,43 @@ def build_current(risk: pd.DataFrame) -> tuple[dict, dict, dict]:
     ctx_war = dict(domain="war", as_of=as_of_war, features_year=T, target_period=str(T + 1), horizon="1 год",
                    source=f"UCDP GED {vintage.UCDP_VERSION}", interval="logit")
     contexts = {
-        "war25_onset": dict(ctx_war, title="Начало конфликта, ≥ 25 погибших", short="начало, ≥ 25",
+        "war25_onset": dict(ctx_war, title="Начало войны: от 25 погибших за год", short="начало, от 25 погибших",
                             event=f"Начало государственного вооружённого конфликта: ≥ 25 погибших за {T + 1} год на своей территории или у соседа, где страна — сторона",
                             sample=f"страны без государственной войны в {T} году", n=n_on25, model="model_hist pitf · логрегрессия начала"),
-        "war25_cont": dict(ctx_war, title="Продолжение конфликта, ≥ 25 погибших", short="продолжение, ≥ 25",
+        "war25_cont": dict(ctx_war, title="Продолжение войны: от 25 погибших за год", short="продолжение, от 25 погибших",
                            event=f"Продолжение государственного вооружённого конфликта: ≥ 25 погибших за {T + 1} год",
                            sample=f"страны с государственной войной в {T} году", n=groups["war25_cont"][1], model="model_hist pitf · логрегрессия продолжения"),
-        "war1000_onset": dict(ctx_war, title="Начало конфликта, ≥ 1000 погибших", short="начало, ≥ 1000",
+        "war1000_onset": dict(ctx_war, title="Начало большой войны: от 1000 погибших за год", short="начало, от 1000 погибших",
                               event=f"Начало государственного вооружённого конфликта высокой интенсивности: ≥ 1000 погибших за {T + 1} год",
                               sample=f"страны без войны ≥ 1000 погибших в {T} году", n=n_on1000, model="model_hist pitf · логрегрессия начала"),
-        "war1000_cont": dict(ctx_war, title="Продолжение конфликта, ≥ 1000 погибших", short="продолжение, ≥ 1000",
+        "war1000_cont": dict(ctx_war, title="Продолжение большой войны: от 1000 погибших за год", short="продолжение, от 1000 погибших",
                              event=f"Продолжение конфликта высокой интенсивности: ≥ 1000 погибших за {T + 1} год",
                              sample=f"страны с войной ≥ 1000 погибших в {T} году", n=groups["war1000_cont"][1], model="model_hist pitf · логрегрессия продолжения"),
-        "fxa": dict(domain="fx", title="Структурный прогноз", short="девальвация ≥ 25 %", as_of=f"{Ty + 1}-01-01", features_year=Ty,
+        "fxa": dict(domain="fx", title="Обвал курса за год: на 25 % и больше", short="девальвация ≥ 25 % за год", as_of=f"{Ty + 1}-01-01", features_year=Ty,
                     target_period=f"{Ty + 1}–{Ty + 2}", horizon="2 года", interval="logit", n=counts["fxa_logit_2026_27"],
                     event=f"Девальвация ≥ 25 % за год (курс к доллару, декабрь к декабрю) в {Ty + 1} или {Ty + 2} году после ≥ 2 спокойных лет",
                     sample="страны со своей валютой и курсом МВФ", model="econ_long logit_long · логрегрессия",
                     source=f"МВФ (курс — декабрь {Ty}), Global Macro Database (макроданные — {Ty - macro_lag})"),
-        "fxa_tree": dict(domain="fx", title="Структурный прогноз, деревья", short="девальвация ≥ 25 %, деревья", as_of=f"{Ty + 1}-01-01", features_year=Ty,
+        "fxa_tree": dict(domain="fx", title="Обвал курса за год, вторая модель", short="девальвация ≥ 25 %, вторая модель", as_of=f"{Ty + 1}-01-01", features_year=Ty,
                          target_period=f"{Ty + 1}–{Ty + 2}", horizon="2 года", interval="none", n=counts["fxa_extree_2026_27"],
                          event=f"Девальвация ≥ 25 % за год (декабрь к декабрю) в {Ty + 1} или {Ty + 2} году",
                          sample="страны со своей валютой и курсом МВФ", model="econ_long extree_long · ExtraTrees",
                          source=f"МВФ (курс — декабрь {Ty}), Global Macro Database (макроданные — {Ty - macro_lag})"),
-        "fxa_check": dict(domain="fx", title="Структурный прогноз, проверочный период", short="девальвация ≥ 25 %", as_of=f"{Ty}-01-01", features_year=Ty - 1,
+        "fxa_check": dict(domain="fx", title="Обвал курса за год, прошлый период для проверки", short="девальвация ≥ 25 % за год", as_of=f"{Ty}-01-01", features_year=Ty - 1,
                           target_period=f"{Ty}–{Ty + 1}", horizon="2 года", interval="logit", n=counts["fxa_logit_2025_26"],
                           event=f"Девальвация ≥ 25 % за год (декабрь к декабрю) в {Ty} или {Ty + 1} году", sample="страны со своей валютой и курсом МВФ",
                           model="econ_long logit_long · логрегрессия", source="МВФ, Global Macro Database"),
-        "fxm": dict(domain="fx", title="Месячный обвал", short="скачок курса ≥ 15 % за месяц", as_of=_month_ru_ctx(amin, amax), as_of_per_country=True,
-                    target_period="12 месяцев после даты среза страны", horizon="12 месяцев", interval="logit", n=counts["fx_deval15_12m"],
-                    event="Скачок курса к доллару ≥ 15 % за один месяц (первый после ≥ 12 спокойных месяцев) в течение 12 месяцев после даты среза",
+        "fxm": dict(domain="fx", title="Резкий скачок курса за месяц: на 15 % и больше", short="скачок курса ≥ 15 % за месяц", as_of=_month_ru_ctx(amin, amax), as_of_per_country=True,
+                    target_period="12 месяцев после даты прогноза страны", horizon="12 месяцев", interval="logit", n=counts["fx_deval15_12m"],
+                    event="Скачок курса к доллару ≥ 15 % за один месяц (первый после ≥ 12 спокойных месяцев) в течение 12 месяцев после даты прогноза",
                     sample="страны со своей валютой и свежим месячным курсом МВФ", model="econ_kr logit · логрегрессия", source="МВФ, месячные ряды"),
-        "fxm_live": dict(domain="fx", title="Месячный обвал, модель-претендент", short="скачок курса ≥ 15 %, претендент", as_of=_month_ru_ctx(amin, amax),
-                         as_of_per_country=True, challenger=True, target_period="12 месяцев после даты среза страны", horizon="12 месяцев",
+        "fxm_live": dict(domain="fx", title="Резкий скачок курса за месяц, новая модель на испытании", short="скачок курса ≥ 15 %, новая модель", as_of=_month_ru_ctx(amin, amax),
+                         as_of_per_country=True, challenger=True, target_period="12 месяцев после даты прогноза страны", horizon="12 месяцев",
                          interval="logit", n=counts["fx_deval15_12m_live"],
                          event="То же событие и то же окно, что у месячного обвала; другой набор признаков (привязка, REER, привязка × падение резервов)",
                          sample="страны со своей валютой и свежим месячным курсом МВФ", model=f"econ_csd live_fx_swap · логрегрессия, C = {live_C:g}",
-                         source="МВФ, Bruegel", note="Модель-претендент: публикуется рядом с основной для сравнения на будущих данных и её не заменяет."),
-        "stress": dict(domain="fx", title="Текущий стресс", short="давление, σ", as_of=_month_ru_ctx(amin, amax), as_of_per_country=True, observed=True,
+                         source="МВФ, Bruegel", note="Новая модель на испытании: публикуется рядом с основной для сравнения на будущих данных и её не заменяет."),
+        "stress": dict(domain="fx", title="Давление на валюту сейчас", short="давление, σ", as_of=_month_ru_ctx(amin, amax), as_of_per_country=True, observed=True,
                        target_period=None, horizon=None, interval="none", n=counts["fx_deval15_12m"],
                        event="Текущее валютное давление — наблюдаемый показатель в стандартных отклонениях. Это не вероятность кризиса.",
                        sample="страны со своей валютой и свежим месячным курсом МВФ", model="индекс давления EMP, максимум за 3 месяца", source="МВФ, курс и резервы"),
@@ -706,7 +706,7 @@ def build_current(risk: pd.DataFrame) -> tuple[dict, dict, dict]:
                      event=f"Системный банковский кризис в {Tb + 1} или {Tb + 2} году (по метке Bluwstein и др.)",
                      sample="страны BIS с длинной ставкой и собственной денежной массой", model="econ_boe_em jst_extree, набор full · ExtraTrees",
                      source=f"BIS, Global Macro Database (макроданные — {Tb - cfg.macro_lag}, ставки — {Tb})", base_rate=num(bank_base), n_train=bank_n),
-        "bank_check": dict(domain="bank", title="Банковский кризис, проверочный период", short="системный банковский кризис", as_of=f"{Tb}-01-01",
+        "bank_check": dict(domain="bank", title="Банковский кризис, прошлый период для проверки", short="системный банковский кризис", as_of=f"{Tb}-01-01",
                            features_year=Tb - 1, target_period=f"{Tb}–{Tb + 1}", horizon="2 года", interval="none", n=counts["bank_jst_extree_full_2025_26"],
                            event=f"Системный банковский кризис в {Tb} или {Tb + 1} году (по метке Bluwstein и др.)",
                            sample="страны BIS с длинной ставкой и собственной денежной массой", model="econ_boe_em jst_extree, набор full · ExtraTrees",
@@ -967,19 +967,19 @@ def build_check(score: pd.DataFrame) -> tuple[dict, dict]:
     b = b[(b.feature_set == "full") & ~b.iso.isin(JST_ISO)].rename(columns={"iso": "id", "jst_extree": "model", "crisis": "y"})
     b["release"], b["post_soviet"] = b.year, b.id.isin(POST_SOVIET_ISO3)
 
-    B = "Базовая частота: доля событий в прошлом, одна для всех стран"
+    B = "Обычный уровень: доля событий в прошлом, одна для всех стран"
     specs = [
-        ("war25", "war", "Начало конфликта, ≥ 25 погибших", "1 год", w, {"base_rate": B, "decay_cal": "Память о войне (decay), переведённая в вероятность"},
+        ("war25", "war", "Начало войны: от 25 погибших за год", "1 год", w, {"base_rate": B, "decay_cal": "Память о войне (decay), переведённая в вероятность"},
          {"world": ("Мир: страны без войны в году выпуска", None, ("война: начало state_war25 в T+1", "мир, страны без войны в T", "pitf_state_war25")),
           "quiet10": ("Мирные страны: без войны ≥ 10 лет", lambda d: d.years_since_war >= 10, None),
           "ps": ("Постсоветские страны", lambda d: d.post_soviet, None)}, "model_hist pitf · логрегрессия начала"),
-        ("fxa", "fx", "Девальвация ≥ 25 % за год", "2 года", fa, {"base_rate": B, "persist": "Была девальвация в последние 5 лет (persist)"},
+        ("fxa", "fx", "Обвал курса за год: на 25 % и больше", "2 года", fa, {"base_rate": B, "persist": "Была девальвация в последние 5 лет (persist)"},
          {"world": ("Мир: страны и территории со своей валютой", None, ("валютный кризис, год: deval25 в t+1…t+2", "мир", "logit_long")),
           "ps": ("Постсоветские страны", lambda d: d.post_soviet, ("валютный кризис, год: deval25 в t+1…t+2", "постсоветские", "logit_long"))}, "econ_long logit_long · логрегрессия"),
-        ("fxm", "fx", "Скачок курса ≥ 15 % за месяц", "12 месяцев", fm, {"base_rate": B, "pressure": "Текущее давление на курс (pressure)"},
+        ("fxm", "fx", "Резкий скачок курса за месяц: на 15 % и больше", "12 месяцев", fm, {"base_rate": B, "pressure": "Текущее давление на курс (pressure)"},
          {"world": ("Мир: страны со своей валютой", None, ("валютный кризис, месяц: deval15 за 12 мес", "мир", "logit")),
           "ps": ("Постсоветские страны", lambda d: d.post_soviet, ("валютный кризис, месяц: deval15 за 12 мес", "постсоветские", "logit"))}, "econ_kr logit · логрегрессия"),
-        ("fxm_live", "fx", "Скачок курса ≥ 15 % за месяц, модель-претендент", "12 месяцев", fl, {"base_rate": B, "champion": "Основная месячная модель (econ_kr logit)"},
+        ("fxm_live", "fx", "Резкий скачок курса за месяц, новая модель на испытании", "12 месяцев", fl, {"base_rate": B, "champion": "Основная месячная модель (econ_kr logit)"},
          {"world": ("Мир: страны со своей валютой", None, ("валютный кризис, месяц: deval15 за 12 мес, претендент", "мир", "live_fx_swap")),
           "ps": ("Постсоветские страны", lambda d: d.post_soviet, ("валютный кризис, месяц: deval15 за 12 мес, претендент", "постсоветские", "live_fx_swap"))}, "econ_csd live_fx_swap · логрегрессия"),
         ("bank", "bank", "Системный банковский кризис", "2 года", b, {"base_rate": B},
@@ -1001,7 +1001,7 @@ def build_check(score: pd.DataFrame) -> tuple[dict, dict]:
     ribbons = {}
     jan = fm[fm.release.str.endswith("-01") & fm.model.notna()]
     ribbons["fxm"] = _plain_ribbon(jan, "fxm", "fx", "Скачок курса ≥ 15 % за месяц",
-                                   "Скачок курса к доллару ≥ 15 % за один месяц в течение 12 месяцев после среза; показаны январские срезы каждого года",
+                                   "Скачок курса к доллару ≥ 15 % за один месяц в течение 12 месяцев после даты прогноза; показаны январские прогнозы каждого года",
                                    "12 месяцев", lambda r: (f"{r}", f"{r[:4]}-02 … {int(r[:4]) + 1}-01", f"{r}-31"), "МВФ, месячные ряды", "econ_kr logit · логрегрессия")
     ribbons["bank"] = _plain_ribbon(b[b.model.notna()], "bank", "bank", "Системный банковский кризис",
                                     "Системный банковский кризис в одном из двух лет после выпуска; страны BIS вне выборки обучения (JST)",
@@ -1031,7 +1031,7 @@ def _plain_ribbon(d: pd.DataFrame, contour: str, dom: str, title: str, event: st
 
 
 def _window(column: str, row: pd.Series) -> tuple[str, date | None, str]:
-    """Целевой период опубликованной оценки: (подпись, последний день окна, семейство)."""
+    """Период прогноза опубликованной оценки: (подпись, последний день окна, семейство)."""
     parts = column.split("_")
     if column.startswith("p_state_war"):
         y = int(parts[-1])
@@ -1041,7 +1041,7 @@ def _window(column: str, row: pd.Series) -> tuple[str, date | None, str]:
         return f"{y1}–{y2}", date(y2, 12, 31), "fxa" if column.startswith("fxa_") else "bank"
     if column.startswith("fx_deval15_12m"):
         if pd.isna(row.get("as_of")):
-            return "12 месяцев после даты среза", None, "fxm"
+            return "12 месяцев после даты прогноза", None, "fxm"
         end = pd.Period(row.as_of, freq="M") + 12
         return f"{pd.Period(row.as_of, freq='M') + 1} … {end}", end.end_time.date(), "fxm"
     raise KeyError(column)
@@ -1049,7 +1049,7 @@ def _window(column: str, row: pd.Series) -> tuple[str, date | None, str]:
 
 def build_archive(risk: pd.DataFrame, today: date, T_war: int) -> dict:
     """Снимки `forecasts/*`: опубликованные оценки как есть и состояние проверки каждой.
-    Исход ставится только там, где целевой период закончился И есть данные наблюдений;
+    Исход ставится только там, где период прогноза закончился И есть данные наблюдений;
     иначе — статус ожидания, никогда не ноль."""
     fact_war = risk.set_index("iso3")  # факт UCDP за год T_war — в текущей таблице риска
     out = []
@@ -1094,7 +1094,7 @@ def build_archive(risk: pd.DataFrame, today: date, T_war: int) -> dict:
                 y = int(c.split("_")[-1])
                 entry["outcome_source"] = {"source": f"UCDP GED {vintage.UCDP_VERSION}", "observed": f"факт {y} года", "checked_at": today.isoformat()}
                 if date(y, 12, 31) < published:
-                    entry["retrospective_note"] = (f"Выпуск опубликован {published.isoformat()} — после окончания целевого периода ({y}). "
+                    entry["retrospective_note"] = (f"Выпуск опубликован {published.isoformat()} — после окончания периода прогноза ({y}). "
                                                    "Это не проспективная проверка: исход показан для справки и в публичный трек-рекорд не входит.")
             models.append(entry)
         changes = [c for c in vintage.SCHEMA_CHANGES if meta["vintage"] in c.get("previous", {}) or c.get("since") == meta["vintage"]]
@@ -1136,12 +1136,12 @@ def build_meta(service: dict) -> dict:
         "lags": {"annual": annual, "monthly": monthly, "file": "src/seldon/core/temporal.py"},
         "origin": "Годовые прогнозы делаются «на 1 января»: курс и история войн — за год T, годовые макроданные — за T−1.",
         "interval_method": {
-            "title": "95 % интервал оценки",
+            "title": "95 % диапазон неопределённости",
             "text": ("Для логит-моделей интервал переносит на прогноз неопределённость коэффициентов: ковариация коэффициентов — "
                      "«сэндвич»-оценка с кластерами по странам и по периодам (берётся большая из двух дисперсий), границы считаются "
                      "на шкале лог-шансов и переводятся в вероятность. Интервал не учитывает ошибку спецификации модели и выбор "
                      "регуляризации; это не интервал предсказания события."),
-            "no_interval": "Для моделей на деревьях (ExtraTrees) такой интервал не определён — показывается «Интервал не рассчитан».",
+            "no_interval": "Для моделей на деревьях (ExtraTrees) такой интервал не определён — показывается «Диапазон не рассчитан».",
             "file": "src/seldon/publish/explain.py"},
         "factors_method": ("Вклад признака — произведение коэффициента на стандартизованное значение признака (β·z), в лог-шансах. "
                            "Ноль — значение равно среднему по обучающей выборке. Вклады объясняют расчёт модели и не устанавливают причин."),
@@ -1189,7 +1189,7 @@ def main(argv: list[str]) -> int:
     last_vintage = archive["vintages"][-1]["vintage"] if archive["vintages"] else None
     current["release"] = {"id": "current", "kind": "current", "calculated": calc_date, "data_cut": current["fx_monthly"]["last_month"],
                           "frozen": False, "last_public_vintage": last_vintage,
-                          "note": "Текущий расчёт боевого конвейера. Он ещё не заморожен как публичный выпуск: следующий снимок — forecasts/2026-12."}
+                          "note": "Текущий расчёт боевого конвейера. Он ещё не заморожен как публичный выпуск: следующий выпуск — forecasts/2026-12."}
     current["cases"] = cases
     _write(OUT / "current.json", current)
     _write(OUT / "countries.json", [{"iso3": iso, "ru": ru, "en": en, "aliases": list(COUNTRY_ALIASES.get(iso, ())),

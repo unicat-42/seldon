@@ -23,8 +23,8 @@
     </nav>
     <div class="search" role="search">
       <label class="vh" for="q">Найти страну</label>
-      <input id="q" type="search" placeholder="Найти страну" autocomplete="off" spellcheck="false">
-      <ul id="q-list" class="search-list" hidden></ul>
+      <input id="q" type="search" placeholder="Найти страну" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="q-list">
+      <ul id="q-list" class="search-list" role="listbox" aria-label="Найденные страны" hidden></ul>
     </div>
   </div>
 </header>
