@@ -8,6 +8,7 @@
 #                   структурный валютный блок против боевых валютных моделей (`econ_struct`,
 #                   `compare_fx`; `ctot_rt` — условия торговли без задержки набора МВФ)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
+#   make risk       пересобрать только таблицу риска (нужны готовые таблицы `make all`)
 #   make test       автотесты на утечки будущего (секунды)
 #   make vintage    заморозить прогнозы в forecasts/ГГГГ-ММ/ (после `make all`; раз в месяц)
 #   make data       скачать сырые данные (Laeven–Valencia — PDF руками, см. подсказку команды)
@@ -17,7 +18,7 @@
 
 RUN = uv run python -m seldon
 
-.PHONY: all variants replicate test data vintage
+.PHONY: all variants replicate risk test data vintage
 
 # Порядок важен: панель войн → признаки → база → модель войн → хроника LV → месячный
 # валютный блок (ему нужна месячная панель войн) → годовой валютный (нужна LV) →
@@ -77,6 +78,9 @@ variants:
 
 replicate:
 	$(RUN) econ_boe
+
+risk:
+	$(RUN) risk_table
 
 test:
 	uv run pytest

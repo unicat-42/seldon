@@ -78,9 +78,12 @@ def _known_year(month: pd.Series, source: str | None) -> pd.Series:
 
 
 def build_struct(fx: pd.DataFrame, eur: pd.DataFrame, reer: pd.DataFrame, ctot: pd.DataFrame, irr: pd.DataFrame,
-                 buffers: pd.DataFrame, lags: StructLags = StructLags(), irr_last_year: int = IRR_LAST_YEAR) -> pd.DataFrame:
+                 buffers: pd.DataFrame, lags: StructLags = StructLags(), irr_last_year: int = IRR_LAST_YEAR,
+                 filled: bool = True) -> pd.DataFrame:
     """Месячная таблица структурных признаков: iso3, month, `COLUMNS`, irr_extended.
     Чистая функция: строка месяца m зависит только от данных, известных к концу m.
+    `filled=False` — без флагов и нулей вместо пропусков (пропуск остаётся пропуском): для
+    описательных индикаторов витрины, где ноль и «нет данных» путать нельзя.
 
     Вход: `fx` (iso3, month, fx — курс к доллару на конец месяца), `eur` (month, eur_usd),
     `reer` (iso3, month, reer120, reer51, neer120, neer51), `ctot` (iso3, month, ctot), `irr` (iso3, year,
@@ -130,8 +133,11 @@ def build_struct(fx: pd.DataFrame, eur: pd.DataFrame, reer: pd.DataFrame, ctot: 
     p["irr_peg"] = (p.irr_fine <= PEG_MAX_CODE).astype(float).where(p.irr_fine.notna())
 
     p["reer_peg"] = p.reer_gap.clip(lower=0) * p.peg_share12
-    out = fill(p[["iso3", "month", "peg_share12", "irr_peg", "gg_log", "res_months_log", "reer_gap", "reer_peg",
-                  "ctot_d12", "irr_extended"]])
+    raw = p[["iso3", "month", "peg_share12", "irr_peg", "gg_log", "res_months_log", "reer_gap", "reer_peg",
+             "ctot_d12", "irr_extended"]]
+    if not filled:
+        return raw.reset_index(drop=True)
+    out = fill(raw)
     return out[["iso3", "month", *COLUMNS, "irr_extended"]]
 
 
@@ -161,13 +167,15 @@ def attach(p: pd.DataFrame, table: pd.DataFrame, on: list[str]) -> pd.DataFrame:
     return fill(p.merge(table[[*on, *COLUMNS, "irr_extended"]], on=on, how="left"))
 
 
-def load_struct(lags: StructLags = StructLags()) -> pd.DataFrame:
-    """Собрать таблицу из сырых источников (`sources/`)."""
+def load_struct(lags: StructLags = StructLags(), last_month: str = LAST_MONTH, filled: bool = True) -> pd.DataFrame:
+    """Собрать таблицу из сырых источников (`sources/`). `last_month` — последний месяц курса
+    (по умолчанию как у проверки вслепую; витрина берёт свой, более свежий)."""
     from seldon.sources.bruegel import load_reer
     from seldon.sources.imf import load_ctot, load_eur_anchor, load_monthly_fx
     from seldon.sources.irr import load_irr
     from seldon.sources.wdi import load_external_buffers
 
     raw = load_monthly_fx()
-    fx = raw[raw.iso3.str.fullmatch(r"[A-Z]{3}") & (raw.month <= LAST_MONTH)]  # без агрегатов (еврозона и т. п.)
-    return build_struct(fx, load_eur_anchor(raw), load_reer(), load_ctot(), load_irr(), load_external_buffers(), lags)
+    fx = raw[raw.iso3.str.fullmatch(r"[A-Z]{3}") & (raw.month <= last_month)]  # без агрегатов (еврозона и т. п.)
+    return build_struct(fx, load_eur_anchor(raw), load_reer(), load_ctot(), load_irr(), load_external_buffers(), lags,
+                        filled=filled)
