@@ -25,6 +25,7 @@
     uv run python -m seldon download irr
     uv run python -m seldon download bruegel
     uv run python -m seldon download parallel
+    uv run python -m seldon download cepii
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -255,6 +256,14 @@ SOURCES: dict[str, dict] = {
         "files": {REINHART_FILE: REINHART_URL},
         "unzip": False,
         "sha256": {REINHART_FILE: REINHART_SHA256},
+    },
+    # CEPII GeoDist (Mayer & Zignago 2011) — матрица парных дистанций, общих официальных
+    # (`comlang_off`) и разговорных (`comlang_ethno`, ≥ 9 % населения) языков, колониальных связей.
+    # Открытый архив на cepii.fr; см. `sources/cepii.py`.
+    "cepii": {
+        "files": {"dist_cepii.zip": "http://www.cepii.fr/distance/dist_cepii.zip"},
+        "unzip": True,
+        "sha256": {"dist_cepii.zip": "1854825bab1abe7197f6e47295a7ced5f72c83bc95076768f733c4969ed86780"},
     },
     # REER Bruegel (Darvas), релиз 11.10.2026: месячный реальный эффективный курс, 178 стран.
     # Прямая ссылка на архив релиза; см. `sources/bruegel.py`.
@@ -630,6 +639,7 @@ FETCHERS = {
     "irr": lambda: fetch_static("irr"),
     "bruegel": lambda: fetch_static("bruegel"),
     "parallel": lambda: fetch_static("parallel"),
+    "cepii": lambda: fetch_static("cepii"),
     "ucdp": lambda: fetch_static("ucdp"),
     "ucdp_candidate": lambda: fetch_static("ucdp_candidate"),
     "pitf": lambda: fetch_static("pitf"),
@@ -649,7 +659,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "ucdp_candidate", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel"]
+DEFAULT_SOURCES = ["ucdp", "ucdp_candidate", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel", "cepii"]
 
 
 def main(argv: list[str]) -> int:

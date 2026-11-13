@@ -66,7 +66,8 @@
     Месячный контур войн (чекпоинт 4.2): события UCDP за месяц m известны к концу m+1
     (`ucdp_events`: файл Candidate Events выходит 20-го числа следующего месяца) — признаки
     строки месяца m считаются по событиям ≤ m−1; метка окна m+1…m+h известна к m+h+1 и не
-    раньше, чем вышел список сторон ACD за год конца окна.
+    раньше, чем вышел список сторон ACD за год конца окна. Архивные политические события
+    (чекпоинт 4.3a): `massmob_events` и `reign_monthly` за месяц m известны к концу m+1 (лаг 1 мес).
 
 Цифры в дорожной карте ниже с пометкой «до аудита» завышены утечками; честные — в
 `reports/2026-11-12-session-audit-stage1.md`.
@@ -101,7 +102,9 @@
   `model_hist pitf_dyad` → `compare_war dyad`; месячная модель войн на 3 / 6 / 12 месяцев —
   `month_features` → `model_month` (и `model_month cf`) → `compare_month`; доводка диад —
   `dyads_live` → `compare_war live`; структурный валютный блок — `econ_struct` →
-  `compare_fx`, и то же с `ctot_rt`); `make replicate` — повторение статьи Банка Англии (`econ_boe`, ≈ 10 минут);
+  `compare_fx`, и то же с `ctot_rt`; сетевое заражение конфликтов — `compare_network`;
+  критическое замедление `CSD` — `csd_month` и `econ_csd`; отбор кандидатов в витрину и
+  проверка живого края — `select_showcase`); `make replicate` — повторение статьи Банка Англии (`econ_boe`, ≈ 10 минут);
   `make test` — автотесты; `make data` — скачать сырые данные (`download all`);
   `make vintage` — заморозить прогнозы в `forecasts/ГГГГ-ММ/` (после `make all`, раз в месяц;
   готовый снимок не перезаписывать).
@@ -123,32 +126,37 @@ Makefile         пересчёт всего с нуля
 src/seldon/      код, пять слоёв + исследовательский:
   cli.py           список команд (`python -m seldon <команда>`)
   core/            общие кирпичи, от предметной области не зависят:
-                   entities (коды стран, валютные союзы), panel (сетка периодов, приросты
+                   entities (коды стран, валютные союзы, `CEPII_ISO3_ALIASES`), panel (сетка периодов, приросты
                    и лаги по календарю), temporal (контракт `as_of`, `label_known`,
                    `expanding_origin_split`, лаги публикации `available_from`), calibration,
+                   csd (скользящая дисперсия и AR(1) без утечек будущего),
                    metrics (AUC сквозной и внутри года, Brier, бутстрэп по годам,
                    `paired_comparison` — парное сравнение с эталоном)
-  sources/         скачивание (`download`) и чтение сырых файлов: ucdp, gw, cow, imf, gmd,
+  sources/         скачивание (`download`) и чтение сырых файлов: ucdp, gw, cow, cepii, imf, gmd,
                    wdi, bis, jst, lv, polity, reign, massmob, vdem, epr, unga, mid, irr, bruegel, parallel.
                    `data/raw` читается только здесь
   domains/         признаки, целевые и модели по блокам:
     conflict/        panel (панель и целевые), features, features_pitf, features_econ,
-                     features_polit, features_vdem, features_epr, baseline, model_hist;
+                     features_polit, features_vdem, features_epr, network_features, baseline, model_hist;
                      пары стран: dyads (панель A ← B × год), model_dyad;
                      месячный контур: month_features (панель с Candidate Events и
-                     предвестниками), model_month (начало и продолжение на 3 / 6 / 12 мес);
+                     предвестниками), csd_month (признаки и тесты CSD в месячных войнах),
+                     model_month (начало и продолжение на 3 / 6 / 12 мес);
                      live_pairs (живая хроника столкновений государств из событий UCDP),
                      model_dyad_live (она вместо MID, раздельные модели, калибровка p_ext)
     currency/        месячный блок: kr_targets, kr_features, econ_kr;
                      годовой: long_targets, long_features, econ_long;
                      структурные признаки для обоих: struct_features, econ_struct;
-                     заражение по торговым связям: contagion_features, econ_contagion
+                     заражение по торговым связям: contagion_features, econ_contagion;
+                     критическое замедление CSD: csd_features, econ_csd
     banking/         econ_boe (повторение статьи BoE), econ_boe_em (перенос на страны BIS)
   evaluation/      backtest (единый цикл проверки вслепую), scorecard (сводка качества),
                    compare_war (парное сравнение наборов модели войн с эталоном),
+                   compare_network (сетевое заражение войн в годовом и месячном контурах),
                    compare_fx (то же для структурных наборов валютных моделей),
                    compare_contagion (наборы заражения, горизонты 3 / 6 / 12 месяцев),
-                   compare_month (месячная модель войн: срезы, кейсы, conflictforecast)
+                   compare_month (месячная модель войн: срезы, кейсы, conflictforecast),
+                   select_showcase (сводный отбор кандидатов Этапов 3–4 и проверка живого края)
   publish/         risk_table (витрина), vintage (замороженный снимок прогнозов)
   research/        разовые блоки вне конвейера: pitf, compare_cf, econ_panel, news_ru,
                    behavior_ru, behavior_world
@@ -525,8 +533,21 @@ src/seldon/      код, пять слоёв + исследовательски�
   (Донбасс 2016–2021 — череда «мирных» месяцев); вторжения дают ложные пары (Турция ← Ирак);
   тест поймал утечку — при прогнозе из середины года метки текущего года зависят от ещё не
   вышедшего списка сторон ACD (в боевом прогоне «на декабрь» её не было, правило дополнено).
-  Не покрыто: ревизии Candidate → GED в реальном времени. Витрина не менялась (развилки —
-  раздел 12 отчёта). Проверок pytest — 52. Дальше: решения по разделу 12, затем чекпоинт 4.3.
+  Не покрыто: ревизии Candidate → GED в реальном времени. Закрытие развилок 4.2: годовой
+  `pitf` остаётся на витрине (`dy_cal`/`live_pairs`/`split` и месячные войны в `variants`),
+  порог `25` погибших сохранён, архив 2020–2025 не качается.
+
+• 2026-11-13 — Этап 4, чекпоинт 4.3 (сетевое заражение, `CSD` и отбор кандидатов):
+  `4.3a`: `pitf_net_cl` 0.8240 против `pitf` 0.8247; в месячных войнах (`h=3`) `smoke_nb_net`
+  0.8875 [0.8543; 0.9131] (+0.0424 на тихих странах); архивные `MassMob`/`REIGN` не дают
+  прироста поверх `smoke_nb_net` на чистом `1996–2019` и дают артефакт `-0.507` на пропуске —
+  внешний `ACLED`/`GDELT` не нужен. `4.3b`: `CSD` не работает ни в месячных войнах (80.6 % нулей),
+  ни в валюте (`-0.023…-0.042`). `4.3c`: `live_fx`/`live_fx_swap` (+0.061 на `h=3`, +0.034 на `h=12`)
+  побеждают `ref` за счёт живых источников и `STALE`-заполнения (`REER` 50.5→97.2 %, резервы
+  24.8→75.2 %); `live_fx_ctot` лечит плавающие валюты ценой 6-мес лага; `long_live_fx_c1` 0.724
+  в мире; сверка `ref` на `2026-10` с `risk_2025_26.csv` — `max|Δ| = 4.99e-05`. Подробно —
+  `reports/2026-11-13-session-stage4-3.md` (раздел 6 — развилки B1–B4 для Этапа 5). Проверок
+  pytest — 60. Витрина и `forecasts/2026-11/` не менялись, `forecasts/2026-12/` не создавался.
 
 ## Постсоветские страны (фокус)
 

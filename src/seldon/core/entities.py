@@ -69,6 +69,16 @@ GW_TO_ISO3: dict[int, str | None] = {
 # ISO3 → GW для ныне существующих государств (SRB → 340: Сербия; 345 — Югославия до 2006).
 ISO3_TO_GW: dict[str, int] = {iso: gw for gw, iso in GW_TO_ISO3.items() if iso and gw != 345}
 
+# Исторические коды ISO3 в CEPII GeoDist (Mayer & Zignago 2011) → коды GW.
+# YUG в CEPII кодирует Сербию и Черногорию до распада 2006 года; при разборе CEPII
+# строки YUG раскрываются на 340 (Сербия), 341 (Черногория) и 345 (Югославия до 2006).
+CEPII_ISO3_ALIASES: dict[str, tuple[int, ...]] = {
+    "ROM": (360,),           # Румыния (ROU)
+    "ZAR": (490,),           # ДР Конго (COD)
+    "TMP": (860,),           # Восточный Тимор (TLS)
+    "YUG": (340, 341, 345),  # Сербия, Черногория, Югославия
+}
+
 # Correlates of War → Gleditsch–Ward, где коды расходятся (1989+). Сербия: COW 345 = GW 340
 # с 2006 и GW 345 до того — в данных о соседях дублируется под обоими кодами (SERBIA_COW).
 COW_TO_GW: dict[int, int] = {

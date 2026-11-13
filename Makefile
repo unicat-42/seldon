@@ -11,7 +11,9 @@
 #                   3 / 6 / 12 месяцев (`econ_contagion`, `compare_contagion`; ≈ 6 минут),
 #                   месячная модель войн на 3 / 6 / 12 месяцев с предвестниками и Candidate
 #                   Events (`month_features`, `model_month`, `compare_month`), доводка диад
-#                   (`dyads_live`, `compare_war live`; вместе ≈ 25 минут)
+#                   (`dyads_live`, `compare_war live`), сетевое заражение конфликтов
+#                   (`network_features`, `compare_network`), критическое замедление (`econ_csd`,
+#                   `war_csd`) и сводный отбор кандидатов в витрину (`select_showcase`; ≈ 30 минут)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
 #   make risk       пересобрать только таблицу риска (нужны готовые таблицы `make all`)
 #   make test       автотесты на утечки будущего (секунды)
@@ -90,6 +92,15 @@ variants:
 	$(RUN) compare_fx ctot_rt
 	$(RUN) econ_contagion
 	$(RUN) compare_contagion
+	$(RUN) network_features
+	$(RUN) model_hist pitf_net_el logit state_war25
+	$(RUN) model_hist pitf_net_cl logit state_war25
+	$(RUN) model_hist vdem_net_cl logit state_war25
+	$(RUN) model_hist pitf_polit_net logit state_war25
+	$(RUN) compare_network
+	$(RUN) econ_csd
+	$(RUN) war_csd
+	$(RUN) select_showcase
 
 replicate:
 	$(RUN) econ_boe

@@ -1363,3 +1363,375 @@ def test_future_blindness_dyad_live():
     # раздельные модели: пара без границы не получает модель соседей
     test = model_dyad_live.forecast_asof(_dyad_live(s), T, C=0.1)
     assert set(test.model) <= {"near", "far", "pooled"} and not ((test.near == 0) & (test.model == "near")).any()
+
+
+def test_cepii_entity_mapping():
+    """CEPII GeoDist: разбор и маппинг исторических кодов в Gleditsch–Ward без дублей и пропусков."""
+    from seldon.sources import cepii as cepii_source
+
+    sample = pd.DataFrame([
+        {"iso_o": "RUS", "iso_d": "KAZ", "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+        {"iso_o": "KAZ", "iso_d": "RUS", "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+        {"iso_o": "TUN", "iso_d": "SYR", "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+        {"iso_o": "ROM", "iso_d": "ZAR", "comlang_off": 1, "comlang_ethno": 0, "colony": 0, "smctry": 0},
+        {"iso_o": "YUG", "iso_d": "TMP", "comlang_off": 0, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+        {"iso_o": "RUS", "iso_d": "RUS", "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+    ])
+    parsed = cepii_source.parse_cepii(sample)
+    assert not parsed.duplicated(["a", "b"]).any()
+    assert not (parsed.a == parsed.b).any()
+    idx = parsed.set_index(["a", "b"])
+    assert idx.loc[(360, 490), "comlang_off"] == 1  # ROM → ROU (360), ZAR → COD (490)
+    assert idx.loc[(340, 860), "comlang_ethno"] == 1 and idx.loc[(341, 860), "comlang_ethno"] == 1  # YUG → SRB/MNE, TMP → TLS
+    assert idx.loc[(340, 341), "comlang_off"] == 1 and idx.loc[(340, 341), "comlang_ethno"] == 1  # Сербия и Черногория
+    # реальный файл CEPII: все 15 постсоветских стран присутствуют, пары без дублей
+    real = cepii_source.load_cepii()
+    assert not real.duplicated(["a", "b"]).any()
+    assert entities.POST_SOVIET_GW <= set(real.a)
+    r_idx = real.set_index(["a", "b"])
+    assert r_idx.loc[(365, 705), "comlang_off"] == 1  # Россия–Казахстан
+    assert r_idx.loc[(616, 652), "comlang_off"] == 1  # Тунис–Сирия (арабский)
+
+
+# ---------------------------------------------------------------------------
+# 9. Сетевое заражение конфликтов (чекпоинт 4.3a): лаги, конец хроник, не-соседская передача
+# ---------------------------------------------------------------------------
+
+
+def synth_network(seed: int = 51):
+    """Синтетика для сетевого заражения: 20 стран, UCDP события, V-Dem, EPR+TEK, CEPII, MassMob, REIGN."""
+    s = synth_month(seed=seed)
+    rng = np.random.default_rng(seed)
+    p = month_features.build_panel(s["ged"], s["states"], s["parties"], s["neighbors"], s["span"][0], MONTH_LAST)
+    grid = p[["gw", "year"]].drop_duplicates()
+    v, g, tek = synth_struct(grid, seed=seed + 1)
+    # Не-соседские EPR TEK-связи (gw, gw + 2), чтобы w_el_far зависел и от EPR
+    extra_tek = pd.DataFrame([
+        {"tekid": 900 + gw * 10 + k, "gw": c, "gwgroupid": c * 100 + k}
+        for gw in WAR_STATES[:-2] for k in (0, 1) for c in (gw, gw + 2)
+    ])
+    tek = pd.concat([tek, extra_tek], ignore_index=True)
+    # Добавим общие языки для части пар через 5 шагов (НЕ соседей по COW, не перекрываются с +2 TEK)
+    cepii_rows = []
+    for a in WAR_STATES:
+        for b in WAR_STATES:
+            if a != b and (a % 5 == b % 5):
+                cepii_rows.append({"a": a, "b": b, "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0})
+    cepii = pd.DataFrame(cepii_rows)
+    months = pd.period_range("1990-01", "2012-06", freq="M")
+    mm_rows = []
+    for _ in range(400):
+        ym = months[int(rng.integers(len(months)))]
+        mm_rows.append({
+            "gw": int(rng.choice(WAR_STATES)), "protest": 1,
+            "startyear": ym.year, "startmonth": ym.month,
+            "protesterviolence": int(rng.random() < 0.3),
+            "participants": int(rng.choice([500, 15000])),
+            "stateresponse1": rng.choice(["ignore", "arrests", "beatings", "shootings", "killings"]),
+        })
+    mm = pd.DataFrame(mm_rows)
+    reign_rows = []
+    for gw in WAR_STATES:
+        leader = 1
+        for ym in pd.period_range("1989-01", "2012-09", freq="M"):
+            if rng.random() < 0.03:
+                leader += 1
+            reign_rows.append({
+                "gw": gw, "year": ym.year, "month": ym.month,
+                "leader": f"L{gw}_{leader}", "pt_attempt": float(rng.random() < 0.015),
+            })
+    reign = pd.DataFrame(reign_rows)
+    return {**s, "panel": p, "vdem": v, "epr": g, "tek": tek, "cepii": cepii, "mm": mm, "reign": reign}
+
+
+def test_available_from_conflict_network_features():
+    """Сетевые признаки строки месяца m соблюдают лаги публикации UCDP (1 мес), V-Dem и EPR
+    (`last_available_year_in_month`), MassMob (1 мес, конец хроники `mm_last_month`), REIGN
+    (1 мес, конец хроники `reign_last_month`). Контроль: без лага порча видна; за концом хроники
+    ставятся явные флаги пропусков."""
+    from seldon.domains.conflict import network_features
+    from seldon.domains.conflict.network_features import NetworkLags
+
+    s = synth_network()
+    as_of = pd.Period("2008-06", freq="M")
+    mm_end = pd.Period("2010-03", freq="M")
+    reign_end = pd.Period("2011-08", freq="M")
+    cols = network_features.NETWORK_COLS
+
+    def run(lags=NetworkLags(), **over):
+        d = {**s, **over}
+        return network_features.build_network_features(
+            d["panel"], d["ged"], d["vdem"], d["epr"], d["tek"], d["cepii"], d["neighbors"],
+            d["mm"], d["reign"], lags=lags, epr_last_year=s["span"][1],
+            mm_last_month=mm_end, reign_last_month=reign_end,
+        )
+
+    clean = run()
+    row = lambda df, m=as_of: df[df.ym == m].sort_values("gw")  # noqa: E731
+    c0 = row(clean)
+    assert all(c0[c].nunique() > 1 for c in network_features.NET_CL + ["own_prot_rep12", "net_cl_prot12", "net_cl_coup12"] if not c.endswith("_missing"))
+
+    # Порча всего ещё не опубликованного на as_of
+    bad_ged = _bad_events(s["ged"], _ym(s["ged"]) >= as_of)
+    vdem_known = int(temporal.last_available_year_in_month("vdem_annual", pd.Series([as_of])).iloc[0])
+    epr_known = int(temporal.last_available_year_in_month("epr_annual", pd.Series([as_of])).iloc[0])
+    bad_vdem = _corrupt(s["vdem"], s["vdem"].year > vdem_known, vdem_source.VDEM_COLS).fillna(0.5)
+    bad_epr = s["epr"].copy()
+    late_epr = bad_epr.year > epr_known
+    bad_epr.loc[late_epr, "size"] = 0.01
+    bad_epr.loc[late_epr, "status"] = "DISCRIMINATED"
+    bad_epr["rank"] = bad_epr.status.map(epr_source.POWER_RANK)
+    bad_mm = s["mm"].copy()
+    mm_ym = pd.PeriodIndex.from_ordinals((bad_mm.startyear - 1970) * 12 + bad_mm.startmonth - 1, freq="M")
+    bad_mm.loc[mm_ym >= as_of, "stateresponse1"] = "killings"
+    bad_mm = pd.concat([bad_mm, pd.DataFrame([
+        {"gw": g, "protest": 1, "startyear": as_of.year, "startmonth": as_of.month, "protesterviolence": 1, "participants": 50000, "stateresponse1": "shootings"}
+        for g in WAR_STATES
+    ])], ignore_index=True)
+    bad_reign = s["reign"].copy()
+    r_ym = pd.PeriodIndex.from_ordinals((bad_reign.year - 1970) * 12 + bad_reign.month - 1, freq="M")
+    bad_reign.loc[r_ym >= as_of, "pt_attempt"] = 1.0
+    bad_reign.loc[r_ym >= as_of, "leader"] = "NEW_LEADER"
+
+    _same(c0, row(run(ged=bad_ged, vdem=bad_vdem, epr=bad_epr, mm=bad_mm, reign=bad_reign)), cols)
+
+    # Контроль: без лагов порча того же периода обязана менять признаки
+    assert _differs(row(run(NetworkLags(event_lag=0))), row(run(NetworkLags(event_lag=0), ged=bad_ged)), ["net_el_war12", "net_cl_shock3"])
+    assert _differs(row(run(NetworkLags(vdem_source=None))), row(run(NetworkLags(vdem_source=None), vdem=bad_vdem)), ["net_el_vdem_d2", "net_vuln_cl"])
+    assert _differs(row(run(NetworkLags(epr_source=None))), row(run(NetworkLags(epr_source=None), epr=bad_epr)), ["net_el_war12"])
+    assert _differs(row(run(NetworkLags(mm_lag=0))), row(run(NetworkLags(mm_lag=0), mm=bad_mm)), ["own_prot3", "net_cl_prot3"])
+    assert _differs(row(run(NetworkLags(reign_lag=0))), row(run(NetworkLags(reign_lag=0), reign=bad_reign)), ["own_coup12", "net_cl_coup12"])
+
+    # Конец хроник MassMob и REIGN → явные флаги пропуска (инвариант 6)
+    after_mm = row(clean, mm_end + 2)
+    assert (after_mm.mm_net_missing == 1).all() and (after_mm.own_prot_rep12 == 0).all() and (after_mm.net_cl_prot12 == 0).all()
+    after_reign = row(clean, reign_end + 2)
+    assert (after_reign.reign_net_missing == 1).all() and (after_reign.own_coup12 == 0).all() and (after_reign.net_cl_coup12 == 0).all()
+
+
+def test_conflict_network_non_neighbor_transmission():
+    """Предметный смысл: вспышка репрессий/войны в не-соседней стране C передаётся по общему
+    языку и близкому недемократическому режиму в A (Тунис → Сирия), но не в далёкую демократию D."""
+    from seldon.domains.conflict import network_features
+
+    months = pd.period_range("2005-01", "2011-06", freq="M")
+    A, B, C, D = 1, 2, 3, 4  # A и C не соседи (нет общей границы), но общий язык и близкие автократии; D — демократия без языка
+    p = pd.DataFrame([
+        {"gw": g, "country": f"S{g}", "year": m.year, "month": m.month, "ym": m,
+         "o": (m.year - 1970) * 12 + m.month - 1, "deaths_state": 0, "state_war25": 0}
+        for g in (A, B, C, D) for m in months
+    ])
+    shock = pd.Period("2011-02", freq="M")
+    ged = pd.DataFrame([
+        {"gw": C, "year": shock.year, "month": shock.month, "type_of_violence": 3, "best": 500, "deaths_state": 0},
+        {"gw": C, "year": shock.year, "month": shock.month, "type_of_violence": 1, "best": 80, "deaths_state": 80},
+    ])
+    p.loc[(p.gw == C) & (p.ym == shock), ["deaths_state", "state_war25"]] = [80, 1]
+    vdem = pd.DataFrame([
+        {"gw": g, "year": y, "v2x_polyarchy": 0.90 if g == D else 0.15, "v2x_libdem": 0.85 if g == D else 0.10,
+         "v2x_clphy": 0.9 if g == D else 0.3, "v2cacamps": 0.0 if g == D else 1.5}
+        for g in (A, B, C, D) for y in range(2002, 2012)
+    ])
+    epr = pd.DataFrame({"gw": pd.Series(dtype=int), "year": pd.Series(dtype=int), "gwgroupid": pd.Series(dtype=int),
+                        "size": pd.Series(dtype=float), "status": pd.Series(dtype=str), "rank": pd.Series(dtype=float)})
+    tek = pd.DataFrame({"tekid": pd.Series(dtype=int), "gw": pd.Series(dtype=int), "gwgroupid": pd.Series(dtype=int)})
+    cepii = pd.DataFrame([
+        {"a": A, "b": C, "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+        {"a": C, "b": A, "comlang_off": 1, "comlang_ethno": 1, "colony": 0, "smctry": 0},
+    ])
+    neighbors = {(A, B, y) for y in range(2005, 2012)} | {(B, A, y) for y in range(2005, 2012)}
+    mm = pd.DataFrame({"gw": pd.Series(dtype=int), "protest": pd.Series(dtype=int), "startyear": pd.Series(dtype=int),
+                       "startmonth": pd.Series(dtype=int), "protesterviolence": pd.Series(dtype=int),
+                       "participants": pd.Series(dtype=float), "stateresponse1": pd.Series(dtype=str)})
+    reign = pd.DataFrame({"gw": pd.Series(dtype=int), "year": pd.Series(dtype=int), "month": pd.Series(dtype=int),
+                          "leader": pd.Series(dtype=str), "pt_attempt": pd.Series(dtype=float)})
+
+    out = network_features.build_network_features(p, ged, vdem, epr, tek, cepii, neighbors, mm, reign, epr_last_year=2011)
+    idx = out.set_index(["gw", "ym"])
+    # На самом месяце вспышки (lag = 1) сигнал ещё 0; на shock + 1 он появляется у A, но не у B и D
+    assert idx.loc[(A, shock), "net_el_os12"] == 0 and idx.loc[(A, shock), "net_cl_shock3"] == 0
+    assert idx.loc[(A, shock + 1), "net_el_war12"] > 0 and idx.loc[(A, shock + 1), "net_el_os12"] > 0
+    assert idx.loc[(A, shock + 1), "net_cl_shock3"] > 0 and idx.loc[(A, shock + 1), "net_cl_shock12"] > 0
+    assert idx.loc[(D, shock + 1), "net_el_war12"] == 0 and idx.loc[(D, shock + 1), "net_cl_shock3"] == 0
+
+
+def test_future_blindness_conflict_network_models():
+    """Месячная и годовая модели с сетевыми признаками в точке as_of не зависят от событий и
+    политических данных после as_of (в т.ч. от боёв месяца as_of из-за лага в 1 месяц)."""
+    from seldon.domains.conflict import network_features
+
+    s = synth_network(seed=52)
+    as_of = pd.Period("2009-06", freq="M")
+    T = 2008
+
+    def run_month(ged, vdem, epr, mm, reign):
+        p = month_features.build_panel(ged, s["states"], s["parties"], s["neighbors"], s["span"][0], MONTH_LAST)
+        mf = month_features.build_features(p, s["neighbors"], s["struct"], pop=s["pop"])
+        nf = network_features.build_network_features(
+            p, ged, vdem, epr, s["tek"], s["cepii"], s["neighbors"], mm, reign, epr_last_year=s["span"][1]
+        )
+        m = mf.merge(nf[["gw", "o", *network_features.NET_CL]], on=["gw", "o"])
+        feats = [*model_month.SETS["pitf"], *network_features.NET_CL]
+        return model_month.forecast_asof(m, as_of, feats, h=3, C=0.1).sort_values("gw")
+
+    def run_annual(ged, vdem, epr, mm, reign):
+        year, _ = _war_panels(ged, s["states"], s["parties"], s["neighbors"], s["span"])
+        f = features.build_features(year, s["neighbors"], target="state_war25")
+        f = f.merge(s["struct"][["gw", "year", *features_pitf.PITF_FEATURES]], on=["gw", "year"], how="left").fillna(0.0)
+        nf = network_features.build_network_features(
+            s["panel"], ged, vdem, epr, s["tek"], s["cepii"], s["neighbors"], mm, reign, epr_last_year=s["span"][1]
+        )
+        f = f.merge(network_features.annual_slice(nf), on=["gw", "year"], how="left").fillna(0.0)
+        feats = [*features.FEATURES, *features_pitf.PITF_FEATURES, *network_features.NET_CL]
+        return model_hist.forecast_asof(f, T, feats, target="state_war25").sort_values("gw")
+
+    bad_ged_m = _bad_events(s["ged"], _ym(s["ged"]) >= as_of)
+    bad_ged_y = _bad_events(s["ged"], s["ged"].year > T)
+    vdem_known_m = int(temporal.last_available_year_in_month("vdem_annual", pd.Series([as_of])).iloc[0])
+    bad_vdem_m = _corrupt(s["vdem"], s["vdem"].year > vdem_known_m, vdem_source.VDEM_COLS).fillna(0.5)
+    bad_vdem_y = _corrupt(s["vdem"], s["vdem"].year >= T, vdem_source.VDEM_COLS).fillna(0.5)
+    bad_mm = pd.concat([s["mm"], pd.DataFrame([
+        {"gw": g, "protest": 1, "startyear": as_of.year, "startmonth": as_of.month, "protesterviolence": 1, "participants": 20000, "stateresponse1": "killings"}
+        for g in WAR_STATES
+    ])], ignore_index=True)
+
+    cm0 = run_month(s["ged"], s["vdem"], s["epr"], s["mm"], s["reign"])
+    cm1 = run_month(bad_ged_m, bad_vdem_m, s["epr"], bad_mm, s["reign"])
+    assert cm0.p_onset.nunique() > 1
+    _same(cm0, cm1, ["p", "p_onset", "p_cont"])
+
+    cy0 = run_annual(s["ged"], s["vdem"], s["epr"], s["mm"], s["reign"])
+    cy1 = run_annual(bad_ged_y, bad_vdem_y, s["epr"], bad_mm, s["reign"])
+    assert cy0.p_onset.nunique() > 1
+    _same(cy0, cy1, ["p", "p_onset"])
+
+
+# ---------------------------------------------------------------------------
+# 10. Критическое замедление (CSD, чекпоинт 4.3b)
+# ---------------------------------------------------------------------------
+
+
+def test_csd_primitives_future_blind_and_zero_safe():
+    """Примитивы критического замедления (rolling_var, rolling_ar1, var_surge, ar1_delta):
+    причинны (t ≤ cut не меняется от порчи t > cut), безопасны на плоских/нулевых окнах
+    (возвращают 0.0, а не NaN/inf после min_periods), и не смешивают разные страны в `by_entity`."""
+    from seldon.core.csd import ar1_delta, by_entity, rolling_ar1, rolling_var, var_surge
+
+    rng = np.random.default_rng(71)
+    # 1. Искусственный переход к критическому замедлению: первые 60 — белый шум с малой σ,
+    # последние 24 — высокий AR(1) (0.85) и выросшая дисперсия
+    n1, n2 = 60, 24
+    x1 = rng.normal(0.0, 0.02, n1)
+    x2 = np.zeros(n2)
+    for i in range(n2):
+        x2[i] = 0.85 * (x2[i - 1] if i > 0 else 0.0) + rng.normal(0.0, 0.08)
+    s = pd.Series(np.concatenate([x1, x2]))
+
+    cut = 65
+    s_bad = s.copy()
+    s_bad.iloc[cut + 1 :] = 1e6
+    s_bad.iloc[cut + 3] = np.nan
+
+    for fn, kw in [
+        (rolling_var, {"window": 12, "min_periods": 6}),
+        (rolling_ar1, {"window": 12, "min_periods": 8}),
+        (var_surge, {"short": 12, "long": 36, "min_short": 6, "min_long": 18}),
+        (ar1_delta, {"short": 12, "long": 36, "min_short": 8, "min_long": 18}),
+    ]:
+        a, b = fn(s, **kw).iloc[: cut + 1], fn(s_bad, **kw).iloc[: cut + 1]
+        assert np.allclose(a.to_numpy(), b.to_numpy(), atol=ATOL, rtol=0, equal_nan=True)
+
+    # В конце серии замедление заметно и по дисперсии, и по AR(1)
+    assert var_surge(s, short=12, long=36, min_short=6, min_long=18).iloc[-1] > 0.5
+    assert rolling_ar1(s, window=12, min_periods=8).iloc[-1] > 0.4
+
+    # 2. Нулевые/константные ряды (как мирные страны в UCDP): NaN только до min_periods, дальше 0.0 (без NaN/inf)
+    zeros = pd.Series(np.zeros(60))
+    v0 = rolling_var(zeros, window=12, min_periods=6)
+    a0 = rolling_ar1(zeros, window=12, min_periods=8)
+    vs0 = var_surge(zeros, short=12, long=36, min_short=6, min_long=18)
+    ad0 = ar1_delta(zeros, short=12, long=36, min_short=8, min_long=18)
+    assert v0.iloc[:5].isna().all() and (v0.iloc[5:] == 0.0).all()
+    assert a0.iloc[:7].isna().all() and (a0.iloc[7:] == 0.0).all()
+    assert np.isfinite(vs0.iloc[30:]).all() and (vs0.iloc[30:] == 0.0).all()
+    assert np.isfinite(ad0.iloc[30:]).all() and (ad0.iloc[30:] == 0.0).all()
+
+    # 3. Не протекают между странами в `by_entity`
+    df = pd.DataFrame({"iso3": ["AAA"] * 50 + ["BBB"] * 50, "val": np.concatenate([np.ones(50) * 100.0, np.zeros(50)])})
+    out_b = by_entity(df, "iso3", "val", rolling_ar1, window=12, min_periods=8).iloc[50:]
+    assert out_b.iloc[:7].isna().all() and (out_b.iloc[7:] == 0.0).all()
+
+
+@pytest.mark.parametrize("h", [3, 12])
+def test_future_blindness_fx_csd_and_live_fx(h):
+    """Признаки CSD и компактные живые наборы `live_fx`, `live_fx_swap`, `live_fx_csd`,
+    `csd_regime` в точке as_of не зависят от данных после as_of (в т.ч. от ещё не
+    вышедшего REER за as_of − 1 и as_of); эталон `ref` на h=12 совпадает с боевым `econ_kr`."""
+    from seldon.domains.currency import csd_features, econ_csd
+
+    raw, annual, war = synth_monthly()
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    s, c = synth_fx_struct(KR_COUNTRIES, months, fx=raw), synth_contagion(KR_COUNTRIES, months)
+    as_of = pd.Period("2010-06", freq="M")
+
+    def run(raw, annual, war, s, c, name):
+        p = econ_csd.build_panel_from(raw, annual, war, s, c)
+        return econ_csd.forecast_asof(econ_contagion.with_horizon(p, h), as_of, name, h).sort_values("iso3")
+
+    bad_raw = _corrupt(raw, raw.month > as_of, KR_COLS)
+    bad_s = _unpublished_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of)
+    bad = (
+        bad_raw,
+        _corrupt(annual, annual.year >= as_of.year, ["value"]),
+        _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]),
+        bad_s,
+        _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of, gdp_from=as_of.year - 1),
+    )
+    for name in ("csd_regime", "live_fx", "live_fx_swap", "live_fx_csd", "all_brk_csd"):
+        clean = run(raw, annual, war, s, c, name)
+        assert clean.logit.notna().all() and clean.logit.nunique() > 1
+        _same(clean, run(*bad, name), ["logit", "C", *csd_features.CSD_REGIME])
+    ref = run(raw, annual, war, s, c, "ref")
+    assert _differs(ref, run(raw, annual, war, s, c, "live_fx"), ["logit"])
+    if h == 12:
+        battle = econ_kr.forecast_asof(econ_kr.build_panel(raw, annual, war, target="deval15"), as_of).sort_values("iso3")
+        _same(ref, battle, ["logit"])
+
+
+def test_future_blindness_war_month_csd():
+    """Признаки критического замедления в месячном контуре войн (`csd_month`):
+    на строке месяца m не зависят от событий месяца m и позже (лаг `EVENT_LAG = 1`),
+    на мирных нулевых рядах дают 0.0 (без NaN/inf после окна разогрева), а прогноз
+    `model_month.forecast_asof` с `WAR_CSD` не меняется от будущих событий."""
+    from seldon.domains.conflict import csd_month
+
+    s = synth_month(seed=53)
+    p = month_features.build_panel(s["ged"], s["states"], s["parties"], s["neighbors"], s["span"][0], MONTH_LAST)
+    mf = month_features.build_features(p, s["neighbors"], s["struct"], pop=s["pop"])
+    as_of = pd.Period("2009-06", freq="M")
+
+    def run_features(ged, lag=month_features.EVENT_LAG):
+        panel_g = month_features.build_panel(ged, s["states"], s["parties"], s["neighbors"], s["span"][0], MONTH_LAST)
+        return csd_month.build_war_csd(panel_g, ged, s["neighbors"], lag=lag)
+
+    bad_ged = _bad_events(s["ged"], _ym(s["ged"]) >= as_of)
+    c0 = run_features(s["ged"])
+    c1 = run_features(bad_ged)
+    row = lambda df: df[df.ym == as_of].sort_values("gw")  # noqa: E731
+    assert c0[csd_month.WAR_CSD].notna().all().all()
+    assert all(row(c0)[c].nunique() > 1 for c in ("war_var_surge12", "war_ar1_12", "nb_var_surge12"))
+    _same(row(c0), row(c1), csd_month.WAR_CSD)
+
+    # Контроль: без лага события самого месяца m меняют признаки
+    assert _differs(row(run_features(s["ged"], lag=0)), row(run_features(bad_ged, lag=0)), ["war_var_surge12", "war_ar1_12"])
+
+    # Сквозная проверка в `model_month.forecast_asof`
+    m0 = mf.merge(c0[["gw", "o", *csd_month.WAR_CSD]], on=["gw", "o"])
+    p_bad = month_features.build_panel(bad_ged, s["states"], s["parties"], s["neighbors"], s["span"][0], MONTH_LAST)
+    mf_bad = month_features.build_features(p_bad, s["neighbors"], s["struct"], pop=s["pop"])
+    m1 = mf_bad.merge(c1[["gw", "o", *csd_month.WAR_CSD]], on=["gw", "o"])
+    feats = [*model_month.SETS["pitf"], *csd_month.WAR_CSD]
+    pr0 = model_month.forecast_asof(m0, as_of, feats, h=3, C=0.1).sort_values("gw")
+    pr1 = model_month.forecast_asof(m1, as_of, feats, h=3, C=0.1).sort_values("gw")
+    assert pr0.p_onset.nunique() > 1
+    _same(pr0, pr1, ["p", "p_onset", "p_cont"])

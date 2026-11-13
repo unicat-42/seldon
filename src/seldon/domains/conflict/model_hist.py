@@ -68,6 +68,7 @@ from seldon.domains.conflict.features_pitf import PITF_FEATURES
 from seldon.domains.conflict.features_polit import POLIT_FEATURES
 from seldon.domains.conflict.features_vdem import VDEM_FEATURES
 from seldon.domains.conflict.month_features import LIVE, SMOKE, SMOKE_NB
+from seldon.domains.conflict.network_features import NET_CL, NET_EL, POLIT_NET, POLIT_OWN
 from seldon.domains.conflict.panel import ONSET_OF
 from seldon.evaluation.backtest import backtest
 from seldon.sources.ucdp import YEAR_TO
@@ -95,6 +96,11 @@ FEATURE_SETS = {
     # `pitf_live` — плюс столкновения с другими государствами (нужен `month_features`)
     "pitf_smoke": ([*HIST_FEATURES, *PITF_FEATURES, *SMOKE, *SMOKE_NB], "features_smoke_country_year.parquet"),
     "pitf_live": ([*HIST_FEATURES, *PITF_FEATURES, *SMOKE, *SMOKE_NB, *LIVE], "features_smoke_country_year.parquet"),
+    # чекпоинт 4.3a: сетевое заражение (соседи + EPR TEK + CEPII + режимный кластер; и политические шоки)
+    "pitf_net_el": ([*HIST_FEATURES, *PITF_FEATURES, *NET_EL], "features_network_country_year.parquet"),
+    "pitf_net_cl": ([*HIST_FEATURES, *PITF_FEATURES, *NET_CL], "features_network_country_year.parquet"),
+    "vdem_net_cl": ([*HIST_FEATURES, *PITF_MACRO, *VDEM_FEATURES, *NET_CL], "features_network_country_year.parquet"),
+    "pitf_polit_net": ([*HIST_FEATURES, *PITF_FEATURES, *NET_CL, *POLIT_OWN, *POLIT_NET], "features_network_country_year.parquet"),
 }
 # история считается по этой целевой (state_war1000 — редкая, её историю ведём по state_war25)
 HISTORY_OF = {"state_war25": "state_war25", "state_war1000": "state_war25", "war25": "war25", "war1000": "war25"}

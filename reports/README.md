@@ -48,6 +48,10 @@
 | `fx_contagion_cases.csv` | место страны по риску за 3 / 6 / 12 месяцев до контрольных скачков курса |
 | `fx_contagion_coefficients.csv`, `fx_contagion_univariate.csv`, `fx_contagion_coverage.csv`, `fx_contagion_gg_missing.csv` | коэффициенты наборов; AUC каждого нового признака в одиночку; покрытие по постсоветским странам; кто попадает под флаг `gg_missing` (`econ_contagion`) |
 | `fx_struct_coverage.csv`, `fx_struct_C.csv`, `fx_struct_coefficients.csv` | покрытие структурных признаков по постсоветским странам; какая сила регуляризации выбиралась; коэффициенты набора `struct` (`econ_struct`) |
+| `war_dyad_comparison.csv`, `war_month_comparison.csv`, `war_month_cases.csv`, `war_month_calibration.csv`, `war_month_univariate.csv`, `war_month_coef_2025.csv`, `war_month_ext_diag.csv` | чекпоинт 4.2: двусторонний диадный и месячный контуры войн, кейсы, калибровка и диагностика редких/архивных признаков (`compare_war`, `compare_month`) |
+| `war_network_annual_comparison.csv`, `war_network_month_comparison.csv`, `war_network_univariate.csv`, `war_network_cases.csv`, `pitf_net_cl_state_war25_coefficients.csv`, `pitf_polit_net_state_war25_coefficients.csv` | чекпоинт 4.3a: сетевое заражение войн в годовом и месячном контурах, одиночные признаки, кейсы и коэффициенты артефакта пропуска архивов (`compare_network`, `model_hist`) |
+| `war_csd_comparison.csv`, `war_csd_univariate.csv`, `fx_csd_comparison.csv`, `fx_csd_univariate.csv` | чекпоинт 4.3b: критическое замедление (`CSD`) в месячных войнах и валютных кризисах против эталонов (`csd_month`, `econ_csd`) |
+| `fx_showcase_regime_slices.csv`, `fx_crawling_cases.csv`, `fx_annual_live_comparison.csv`, `stage4_showcase_candidates.csv`, `stage4_showcase_today_fx.csv`, `stage4_showcase_today_war.csv` | чекпоинт 4.3c: отбор кандидатов по режимам курса, кейсы ползущих привязок, годовой живой блок, сводка 4 контуров и сухая проверка живого края `2026-10` / `2026` (`select_showcase`) |
 
 ## Актуальный код, но не пересчитывалось после этапа 1
 
@@ -90,3 +94,9 @@
 - `2026-11-12-session-audit-stage1.md` — аудит, «было → стало».
 - `2026-11-12-session-stage2-layers.md`, `-lags.md`, `-vintage.md` — Этап 2: слои, лаги
   публикации, первый винтаж прогнозов.
+- `2026-11-12-session-stage3-fx-struct.md`, `2026-11-13-session-stage3-war.md`,
+  `2026-11-13-session-stage3-fx-live-edge.md` — Этап 3: структурные признаки, живые источники,
+  свежесть данных на живом крае.
+- `2026-11-13-session-stage4-1.md`, `2026-11-13-session-stage4-2.md`,
+  `2026-11-13-session-stage4-3.md` — Этап 4: валютное заражение и параллельный курс (`4.1`),
+  диады и месячные войны (`4.2`), сетевое заражение, `CSD` и отбор кандидатов в витрину (`4.3`).
