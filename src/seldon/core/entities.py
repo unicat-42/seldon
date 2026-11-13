@@ -211,3 +211,86 @@ def shared_currency_table(first_year: int, last_year: int):
     rows = [(iso, y, cur) for iso, cur, y0, y1 in SHARED_CURRENCY
             for y in range(max(y0, first_year), min(y1 or last_year, last_year) + 1)]
     return pd.DataFrame(rows, columns=["iso3", "year", "fx_regime"])
+
+
+# ---------------------------------------------------------------------------
+# Названия государств витрины для веб-интерфейса (Этап 5, чекпоинт 5.1): ISO3 → (русское,
+# английское). 174 государства системы Gleditsch–Ward из `reports/risk_2025_26.csv`.
+# Русские названия — краткие общеупотребительные; у постсоветских стран — те же, что в
+# `POST_SOVIET` (Беларусь, Молдова, Кыргызстан). `ISO3_TO_SHORT` и колонка `country` витрины
+# не меняются: таблицы конвейера остаются байт в байт прежними.
+# ---------------------------------------------------------------------------
+
+COUNTRY_NAMES: dict[str, tuple[str, str]] = {
+    "AFG": ("Афганистан", "Afghanistan"), "AGO": ("Ангола", "Angola"), "ALB": ("Албания", "Albania"),
+    "ARE": ("ОАЭ", "United Arab Emirates"), "ARG": ("Аргентина", "Argentina"), "ARM": ("Армения", "Armenia"),
+    "AUS": ("Австралия", "Australia"), "AUT": ("Австрия", "Austria"), "AZE": ("Азербайджан", "Azerbaijan"),
+    "BDI": ("Бурунди", "Burundi"), "BEL": ("Бельгия", "Belgium"), "BEN": ("Бенин", "Benin"),
+    "BFA": ("Буркина-Фасо", "Burkina Faso"), "BGD": ("Бангладеш", "Bangladesh"), "BGR": ("Болгария", "Bulgaria"),
+    "BHR": ("Бахрейн", "Bahrain"), "BHS": ("Багамы", "Bahamas"), "BIH": ("Босния и Герцеговина", "Bosnia and Herzegovina"),
+    "BLR": ("Беларусь", "Belarus"), "BLZ": ("Белиз", "Belize"), "BOL": ("Боливия", "Bolivia"),
+    "BRA": ("Бразилия", "Brazil"), "BRB": ("Барбадос", "Barbados"), "BRN": ("Бруней", "Brunei"),
+    "BTN": ("Бутан", "Bhutan"), "BWA": ("Ботсвана", "Botswana"), "CAF": ("ЦАР", "Central African Republic"),
+    "CAN": ("Канада", "Canada"), "CHE": ("Швейцария", "Switzerland"), "CHL": ("Чили", "Chile"),
+    "CHN": ("Китай", "China"), "CIV": ("Кот-д’Ивуар", "Côte d’Ivoire"), "CMR": ("Камерун", "Cameroon"),
+    "COD": ("ДР Конго", "DR Congo"), "COG": ("Республика Конго", "Republic of the Congo"), "COL": ("Колумбия", "Colombia"),
+    "COM": ("Коморы", "Comoros"), "CPV": ("Кабо-Верде", "Cabo Verde"), "CRI": ("Коста-Рика", "Costa Rica"),
+    "CUB": ("Куба", "Cuba"), "CYP": ("Кипр", "Cyprus"), "CZE": ("Чехия", "Czechia"),
+    "DEU": ("Германия", "Germany"), "DJI": ("Джибути", "Djibouti"), "DNK": ("Дания", "Denmark"),
+    "DOM": ("Доминиканская Республика", "Dominican Republic"), "DZA": ("Алжир", "Algeria"), "ECU": ("Эквадор", "Ecuador"),
+    "EGY": ("Египет", "Egypt"), "ERI": ("Эритрея", "Eritrea"), "ESP": ("Испания", "Spain"),
+    "EST": ("Эстония", "Estonia"), "ETH": ("Эфиопия", "Ethiopia"), "FIN": ("Финляндия", "Finland"),
+    "FJI": ("Фиджи", "Fiji"), "FRA": ("Франция", "France"), "GAB": ("Габон", "Gabon"),
+    "GBR": ("Великобритания", "United Kingdom"), "GEO": ("Грузия", "Georgia"), "GHA": ("Гана", "Ghana"),
+    "GIN": ("Гвинея", "Guinea"), "GMB": ("Гамбия", "Gambia"), "GNB": ("Гвинея-Бисау", "Guinea-Bissau"),
+    "GNQ": ("Экваториальная Гвинея", "Equatorial Guinea"), "GRC": ("Греция", "Greece"), "GTM": ("Гватемала", "Guatemala"),
+    "GUY": ("Гайана", "Guyana"), "HND": ("Гондурас", "Honduras"), "HRV": ("Хорватия", "Croatia"),
+    "HTI": ("Гаити", "Haiti"), "HUN": ("Венгрия", "Hungary"), "IDN": ("Индонезия", "Indonesia"),
+    "IND": ("Индия", "India"), "IRL": ("Ирландия", "Ireland"), "IRN": ("Иран", "Iran"),
+    "IRQ": ("Ирак", "Iraq"), "ISL": ("Исландия", "Iceland"), "ISR": ("Израиль", "Israel"),
+    "ITA": ("Италия", "Italy"), "JAM": ("Ямайка", "Jamaica"), "JOR": ("Иордания", "Jordan"),
+    "JPN": ("Япония", "Japan"), "KAZ": ("Казахстан", "Kazakhstan"), "KEN": ("Кения", "Kenya"),
+    "KGZ": ("Кыргызстан", "Kyrgyzstan"), "KHM": ("Камбоджа", "Cambodia"), "KOR": ("Южная Корея", "South Korea"),
+    "KWT": ("Кувейт", "Kuwait"), "LAO": ("Лаос", "Laos"), "LBN": ("Ливан", "Lebanon"),
+    "LBR": ("Либерия", "Liberia"), "LBY": ("Ливия", "Libya"), "LKA": ("Шри-Ланка", "Sri Lanka"),
+    "LSO": ("Лесото", "Lesotho"), "LTU": ("Литва", "Lithuania"), "LUX": ("Люксембург", "Luxembourg"),
+    "LVA": ("Латвия", "Latvia"), "MAR": ("Марокко", "Morocco"), "MDA": ("Молдова", "Moldova"),
+    "MDG": ("Мадагаскар", "Madagascar"), "MDV": ("Мальдивы", "Maldives"), "MEX": ("Мексика", "Mexico"),
+    "MKD": ("Северная Македония", "North Macedonia"), "MLI": ("Мали", "Mali"), "MLT": ("Мальта", "Malta"),
+    "MMR": ("Мьянма", "Myanmar"), "MNE": ("Черногория", "Montenegro"), "MNG": ("Монголия", "Mongolia"),
+    "MOZ": ("Мозамбик", "Mozambique"), "MRT": ("Мавритания", "Mauritania"), "MUS": ("Маврикий", "Mauritius"),
+    "MWI": ("Малави", "Malawi"), "MYS": ("Малайзия", "Malaysia"), "NAM": ("Намибия", "Namibia"),
+    "NER": ("Нигер", "Niger"), "NGA": ("Нигерия", "Nigeria"), "NIC": ("Никарагуа", "Nicaragua"),
+    "NLD": ("Нидерланды", "Netherlands"), "NOR": ("Норвегия", "Norway"), "NPL": ("Непал", "Nepal"),
+    "NZL": ("Новая Зеландия", "New Zealand"), "OMN": ("Оман", "Oman"), "PAK": ("Пакистан", "Pakistan"),
+    "PAN": ("Панама", "Panama"), "PER": ("Перу", "Peru"), "PHL": ("Филиппины", "Philippines"),
+    "PNG": ("Папуа — Новая Гвинея", "Papua New Guinea"), "POL": ("Польша", "Poland"), "PRK": ("КНДР", "North Korea"),
+    "PRT": ("Португалия", "Portugal"), "PRY": ("Парагвай", "Paraguay"), "QAT": ("Катар", "Qatar"),
+    "ROU": ("Румыния", "Romania"), "RUS": ("Россия", "Russia"), "RWA": ("Руанда", "Rwanda"),
+    "SAU": ("Саудовская Аравия", "Saudi Arabia"), "SDN": ("Судан", "Sudan"), "SEN": ("Сенегал", "Senegal"),
+    "SGP": ("Сингапур", "Singapore"), "SLB": ("Соломоновы Острова", "Solomon Islands"), "SLE": ("Сьерра-Леоне", "Sierra Leone"),
+    "SLV": ("Сальвадор", "El Salvador"), "SOM": ("Сомали", "Somalia"), "SRB": ("Сербия", "Serbia"),
+    "SSD": ("Южный Судан", "South Sudan"), "SUR": ("Суринам", "Suriname"), "SVK": ("Словакия", "Slovakia"),
+    "SVN": ("Словения", "Slovenia"), "SWE": ("Швеция", "Sweden"), "SWZ": ("Эсватини", "Eswatini"),
+    "SYR": ("Сирия", "Syria"), "TCD": ("Чад", "Chad"), "TGO": ("Того", "Togo"),
+    "THA": ("Таиланд", "Thailand"), "TJK": ("Таджикистан", "Tajikistan"), "TKM": ("Туркменистан", "Turkmenistan"),
+    "TLS": ("Восточный Тимор", "Timor-Leste"), "TTO": ("Тринидад и Тобаго", "Trinidad and Tobago"), "TUN": ("Тунис", "Tunisia"),
+    "TUR": ("Турция", "Turkey"), "TWN": ("Тайвань", "Taiwan"), "TZA": ("Танзания", "Tanzania"),
+    "UGA": ("Уганда", "Uganda"), "UKR": ("Украина", "Ukraine"), "URY": ("Уругвай", "Uruguay"),
+    "USA": ("США", "United States"), "UZB": ("Узбекистан", "Uzbekistan"), "VEN": ("Венесуэла", "Venezuela"),
+    "VNM": ("Вьетнам", "Vietnam"), "XKX": ("Косово", "Kosovo"), "YEM": ("Йемен", "Yemen"),
+    "ZAF": ("ЮАР", "South Africa"), "ZMB": ("Замбия", "Zambia"), "ZWE": ("Зимбабве", "Zimbabwe"),
+}
+# Как страну ещё ищут: полные формы сокращений и распространённые варианты (для поиска на сайте)
+COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
+    "ARE": ("Объединённые Арабские Эмираты", "Эмираты", "UAE"), "BLR": ("Белоруссия",), "CAF": ("Центральноафриканская Республика",),
+    "CIV": ("Берег Слоновой Кости", "Ivory Coast", "Кот-д'Ивуар", "Cote d'Ivoire"), "COD": ("Демократическая Республика Конго", "Заир", "Congo-Kinshasa"),
+    "COG": ("Конго", "Congo-Brazzaville"), "CPV": ("Острова Зелёного Мыса", "Cape Verde"), "CZE": ("Чешская Республика", "Czech Republic"),
+    "GBR": ("Соединённое Королевство", "Англия", "UK", "Great Britain"), "KGZ": ("Киргизия",), "KOR": ("Республика Корея", "Korea"),
+    "MDA": ("Молдавия",), "MKD": ("Македония", "Macedonia"), "MMR": ("Бирма", "Burma"), "NLD": ("Голландия", "Holland"),
+    "PRK": ("Северная Корея", "Korea DPR"), "SWZ": ("Свазиленд", "Swaziland"), "TKM": ("Туркмения",),
+    "TLS": ("Тимор-Лешти", "East Timor"), "TUR": ("Türkiye",), "USA": ("Соединённые Штаты", "Америка", "USA", "United States of America"),
+    "ZAF": ("Южно-Африканская Республика", "Южная Африка"),
+}
+ISO3_TO_RU: dict[str, str] = {iso: ru for iso, (ru, _) in COUNTRY_NAMES.items()}
+ISO3_TO_EN: dict[str, str] = {iso: en for iso, (_, en) in COUNTRY_NAMES.items()}

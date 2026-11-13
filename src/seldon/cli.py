@@ -50,6 +50,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "scorecard": ("seldon.evaluation.scorecard", "сводная таблица качества основных моделей с интервалами"),
     "risk_table": ("seldon.publish.risk_table", "таблица риска 2026–27 → reports/risk_2025_26.csv"),
     "vintage": ("seldon.publish.vintage", "заморозить прогнозы: vintage [ГГГГ-ММ] → forecasts/ГГГГ-ММ/"),
+    "web_export": ("seldon.publish.web_export", "данные для веб-витрины: статические JSON → web/data/ (после make all)"),
     # research — вне боевого конвейера
     "pitf": ("seldon.research.pitf", "[research] повторение модели PITF на их данных"),
     "compare_cf": ("seldon.research.compare_cf", "[research] сравнение с conflictforecast"),

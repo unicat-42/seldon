@@ -19,3 +19,6 @@ __pycache__/
 # Кэши инструментов
 .pytest_cache/
 .ruff_cache/
+
+# Веб-витрина: JSON собирается командой `make web` из reports/ и data/processed
+web/data/
