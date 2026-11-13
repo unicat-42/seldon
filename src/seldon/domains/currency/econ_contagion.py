@@ -21,7 +21,10 @@
     par         ref + премия параллельного курса (покрытие — см. `sources/parallel.py`);
     level       ref + накопленный шок партнёров (уровень от нижней точки за 24 месяца);
     contagion_level   contagion + накопленный шок;
-    struct_level      struct + накопленный шок.
+    struct_level      struct + накопленный шок;
+    brk / struct_brk / all_brk   + разрыв привязки (`break_features.py`): привязка × потеря
+                сырьевого дохода × резервы; `all_brk` = struct + заражение + разрыв;
+    struct_brk_rt     то же, сырьевой индекс с лагом 1 месяц вместо 6 — только чувствительность.
 Для горизонта h метка — `deval15` в месяцы m+1…m+h; правило «тишины» то же, что у боевой
 модели. Обучение — метки, известные к концу декабря T−1 (m + h ≤ декабрь T−1), тест — все
 месяцы года T, T = 1996…2025; C — по времени внутри обучения (`econ_struct.choose_C_kr`).
@@ -46,6 +49,7 @@ from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.core.entities import ISO3_TO_SHORT, POST_SOVIET_ISO3
 from seldon.core.metrics import auc, auc_within
 from seldon.core.temporal import label_known, last_available_year_in_month
+from seldon.domains.currency import break_features as bf
 from seldon.domains.currency import contagion_features as cf
 from seldon.domains.currency import econ_kr, struct_features
 from seldon.domains.currency.econ_struct import KR_C_REF, KR_MIN_POS, KR_TARGET, _kr_design, _kr_fit, choose_C_kr
@@ -71,6 +75,11 @@ SETS: dict[str, list[str]] = {
     "level": [*cf.LEVEL, *cf.FLAGS],
     "contagion_level": [*cf.CONT, *cf.LEVEL, *cf.FLAGS],
     "struct_level": [*S_CONT, *S_FLAGS, *cf.LEVEL, *cf.FLAGS],
+    # разрыв привязки: привязка × сырьевой доход × резервы — раздел 12 отчёта 4.1
+    "brk": [*bf.BRK, *bf.BRK_FLAGS],
+    "struct_brk": [*S_CONT, *S_FLAGS, *bf.BRK, *bf.BRK_FLAGS],
+    "all_brk": [*S_CONT, *S_FLAGS, *cf.CONT, *cf.FLAGS, *bf.BRK, *bf.BRK_FLAGS],
+    "struct_brk_rt": [*S_CONT, *S_FLAGS, *bf.BRK_RT, *bf.BRK_RT_FLAGS],  # чувствительность: сырьё без задержки набора
 }
 NAMES = list(SETS)
 
@@ -94,12 +103,19 @@ def add_income(p: pd.DataFrame, gdp_pc: pd.DataFrame, source: str | None = "gdp_
     return p.drop(columns="gdp_pc")
 
 
-def build_panel(struct: pd.DataFrame, contagion: pd.DataFrame, gdp_pc: pd.DataFrame, raw=None, annual_cpi=None, war=None) -> pd.DataFrame:
-    """Месячная панель `econ_kr` (целевая `deval15`) + структурные признаки + заражение + доход."""
+def build_panel(struct: pd.DataFrame, contagion: pd.DataFrame, gdp_pc: pd.DataFrame, raw=None, annual_cpi=None, war=None,
+                ctot: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Месячная панель `econ_kr` (целевая `deval15`) + структурные признаки + заражение + доход
+    + разрыв привязки (`ctot` — сырой сырьевой индекс: iso3, month, ctot)."""
     p = econ_kr.build_panel(econ_kr.load_panel() if raw is None else raw, load_annual_cpi() if annual_cpi is None else annual_cpi,
                             load_war() if war is None else war, target=KR_TARGET)
     p = struct_features.attach(p, struct, ["iso3", "month"])
-    return add_income(cf.attach(p, contagion), gdp_pc)
+    p = add_income(cf.attach(p, contagion), gdp_pc)
+    if ctot is None:
+        from seldon.sources.imf import load_ctot
+        ctot = load_ctot()
+    p = bf.add_break(p, bf.ctot_table(ctot))
+    return bf.add_break(p, bf.ctot_table(ctot, lag=bf.RT_LAG), sfx="_rt")
 
 
 def with_horizon(p: pd.DataFrame, h: int) -> pd.DataFrame:
@@ -146,7 +162,7 @@ def run(p: pd.DataFrame, h: int, names: list[str] = NAMES) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def coefficients(p: pd.DataFrame, h: int, names=("full", "struct", "struct_gdp", "level", "struct_level")) -> pd.DataFrame:
+def coefficients(p: pd.DataFrame, h: int, names=("full", "struct", "struct_gdp", "level", "struct_level", "brk", "struct_brk", "struct_brk_rt")) -> pd.DataFrame:
     """Стандартизованные коэффициенты в последней точке обучения."""
     as_of = pd.Period(f"{econ_kr.LAST_EVAL_YEAR - 1}-12", freq="M")
     known = p[label_known(p.month, as_of, h) & p.evaluable]
@@ -164,8 +180,9 @@ def univariate(p: pd.DataFrame, h: int) -> pd.DataFrame:
     только строки, где она есть."""
     d = p[p.evaluable & (p.month.dt.year >= econ_kr.FIRST_EVAL_YEAR)]
     rows = []
-    for f in [*cf.CONT, *cf.LEVEL, *cf.PAR_CONT, "reer_peg", "peg_share12"]:
+    for f in [*cf.CONT, *cf.LEVEL, *cf.PAR_CONT, *bf.BRK, *bf.BRK_RT, "reer_peg", "peg_share12"]:
         flag = "par_missing" if f in cf.PAR_CONT else ("reer_missing" if f == "reer_peg" else "cont_missing")
+        flag = "brk_missing_rt" if f in bf.BRK_RT else ("brk_missing" if f in bf.BRK else flag)
         x = d[d[flag] == 0] if flag in d else d
         for sample, mask in (("мир", x.iso3.notna()), ("постсоветские", x.iso3.isin(POST_SOVIET_ISO3)), ("привязки", x.peg_share12 >= 0.8)):
             s = x[mask]
@@ -231,7 +248,7 @@ def main(argv: list[str]) -> int:
         pd.set_option("display.width", 250)
         print("\nКто попадает под gg_missing (h = 12):")
         print(gg.round(3).to_string(index=False))
-        new = c[c.feature.isin([*cf.COLUMNS, *S_CONT, *S_FLAGS, *GDP, "gg_log_nan"])]
+        new = c[c.feature.isin([*cf.COLUMNS, *S_CONT, *S_FLAGS, *GDP, "gg_log_nan", *bf.BRK, *bf.BRK_RT, *bf.BRK_FLAGS, *bf.BRK_RT_FLAGS])]
         print("\nКоэффициенты (стандартизованные, последняя точка обучения):")
         print(new.round(3).to_string(index=False))
         print("\nAUC признаков в одиночку:")

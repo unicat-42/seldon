@@ -41,7 +41,7 @@ from seldon.domains.banking import econ_boe, econ_boe_em
 from seldon.domains.conflict import dyads, features, features_epr, features_pitf, features_vdem, model_dyad, model_hist, panel
 from seldon.sources import epr as epr_source
 from seldon.sources import vdem as vdem_source
-from seldon.domains.currency import (contagion_features, econ_contagion, econ_kr, econ_long, econ_struct, kr_features, kr_targets,
+from seldon.domains.currency import (break_features, contagion_features, econ_contagion, econ_kr, econ_long, econ_struct, kr_features, kr_targets,
                                      long_features, struct_features)
 from seldon.domains.currency.contagion_features import ContagionLags
 from seldon.domains.currency.struct_features import StructLags
@@ -1106,7 +1106,7 @@ def test_future_blindness_fx_contagion_monthly(h):
     as_of = pd.Period("2010-06", freq="M")
 
     def run(raw, annual, war, s, c, name):
-        p = econ_contagion.build_panel(_struct(s), _contagion(s, c), c["gdp"], raw, annual, war)
+        p = econ_contagion.build_panel(_struct(s), _contagion(s, c), c["gdp"], raw, annual, war, ctot=s["ctot"])
         return econ_contagion.forecast_asof(econ_contagion.with_horizon(p, h), as_of, name, h).sort_values("iso3")
 
     bad_raw = _corrupt(raw, raw.month > as_of, KR_COLS)
@@ -1114,10 +1114,10 @@ def test_future_blindness_fx_contagion_monthly(h):
            _corrupt(war, war.month > as_of, ["war25_now", "war1000_now", "war_onset12"]),
            _future_struct({**s, "fx": bad_raw[["iso3", "month", "fx"]]}, as_of),
            _corrupt_contagion(c, trade_from=as_of.year, parallel_after=as_of, gdp_from=as_of.year - 1))
-    for name in ("full", "par", "struct_level"):
+    for name in ("full", "par", "struct_level", "all_brk", "struct_brk_rt"):
         clean = run(raw, annual, war, s, c, name)
         assert clean.logit.notna().all() and clean.logit.nunique() > 1
-        _same(clean, run(*bad, name), ["logit", "C", *contagion_features.COLUMNS, "gdp_pc_log"])
+        _same(clean, run(*bad, name), ["logit", "C", *contagion_features.COLUMNS, "gdp_pc_log", *break_features.BRK, *break_features.BRK_RT])
     ref = run(raw, annual, war, s, c, "ref")
     assert _differs(ref, run(raw, annual, war, s, c, "full"), ["logit"]), "контроль: набор обязан менять прогноз"
     if h == 12:  # на горизонте 12 месяцев эталон — та же логрегрессия, что в боевом контуре
@@ -1135,3 +1135,18 @@ def test_horizon_label_looks_h_months_ahead():
         fwd = sum(q.groupby("iso3").deval15.shift(-k) for k in range(1, h + 1))
         assert ((q.y == 1) == (fwd > 0))[fwd.notna()].all() and q.y[fwd.isna()].isna().all()
         assert (q.y.fillna(0) <= p.y.fillna(1)).all(), "кризис за h месяцев — подмножество кризиса за 12"
+
+
+def test_available_from_break_features():
+    """Сырьевые признаки разрыва привязки на строке месяца m не используют индекс позже m − 6
+    (`imf_ctot`); вариант чувствительности `_rt` — позже m − 1. Контроль: без лага порча видна."""
+    months = pd.period_range("1993-01", "2014-12", freq="M")
+    ctot = synth_fx_struct(KR_COUNTRIES, months)["ctot"]
+    as_of = pd.Period("2010-06", freq="M")
+    row = lambda d: d[d.month == as_of].sort_values("iso3")  # noqa: E731
+    for lag in (temporal.monthly_lag("imf_ctot"), break_features.RT_LAG):
+        bad = _corrupt(ctot, ctot.month > as_of - lag, ["ctot"], seed=51)
+        clean_t = break_features.ctot_table(ctot, lag)
+        assert all(row(clean_t)[c].nunique() > 1 for c in break_features.CTOT_COLS)
+        _same(row(clean_t), row(break_features.ctot_table(bad, lag)), break_features.CTOT_COLS)
+        assert _differs(row(break_features.ctot_table(ctot, 0)), row(break_features.ctot_table(bad, 0)), break_features.CTOT_COLS)

@@ -34,11 +34,12 @@ from seldon.domains.currency.econ_contagion import HORIZONS, NAMES
 from seldon.evaluation.compare_fx import N_BOOT, PEG_MIN, SPLIT_YEAR, _rank, show
 
 # контрольные кейсы: страна, месяц скачка курса
-CASES = [("RUS", "1998-08"), ("BLR", "2011-05"), ("RUS", "2014-12"), ("BLR", "2015-01"), ("KAZ", "2015-08"),
+CASES = [("RUS", "1998-08"), ("KAZ", "2014-02"), ("BLR", "2011-05"), ("RUS", "2014-12"), ("BLR", "2015-01"), ("KAZ", "2015-08"),
          ("AZE", "2015-02"), ("AZE", "2015-12"), ("UZB", "2017-09"), ("TUR", "2018-08"), ("EGY", "2022-03"),
          ("EGY", "2022-10"), ("NGA", "2016-06"), ("NGA", "2023-06")]
 CASE_NAMES = {**ISO3_TO_SHORT, "TUR": "Турция", "EGY": "Египет", "NGA": "Нигерия"}
-CASE_SETS = ["ref", "struct", "clean", "contagion", "full", "level", "contagion_level", "struct_level"]
+CASE_SETS = ["ref", "struct", "clean", "contagion", "full", "level", "contagion_level", "struct_level",
+             "brk", "struct_brk", "all_brk", "struct_brk_rt"]
 
 
 def load(h: int) -> pd.DataFrame:
@@ -85,7 +86,7 @@ def cases() -> pd.DataFrame:
                    "evaluable": bool(me.evaluable.iloc[0]) if len(me) else np.nan}
             for n in CASE_SETS:
                 row[n] = _rank(snap, iso, f"logit__{n}") if len(snap) else np.nan
-            for f in ("peg_share12", "pshock3", "pshock12", "pmax6", "pshock_peg6", "pgap24", "pkey24"):
+            for f in ("peg_share12", "pshock3", "pshock12", "pmax6", "pshock_peg6", "pgap24", "pkey24", "peg_loss24", "peg_loss24_rt", "ctot_vol60", "peg_resfall"):
                 row[f] = float(me[f].iloc[0]) if len(me) else np.nan
             rows.append(row)
     return pd.DataFrame(rows)
