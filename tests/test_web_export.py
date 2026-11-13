@@ -5,9 +5,9 @@
      пересчёта экспортера с боевыми функциями прогноза, словарь названий стран;
   2. на собранном бандле `web/data/` — что каждая цифра сайта совпадает с `reports/risk_2025_26.csv`,
      `reports/scorecard.csv` и снимком `forecasts/2026-11/`, что на пропусках и общих валютах нет
-     нулей, а даты наблюдений соответствуют лагам `core/temporal.py`. Если бандла нет или он
-     собран из других таблиц (sha256 в манифесте не совпадает) — тесты пропускаются с подсказкой
-     `make web`: в CI нет ни сырых данных, ни `data/processed`.
+     нулей, а даты наблюдений соответствуют лагам `core/temporal.py`. Бандл лежит в git: если он
+     собран из других таблиц (sha256 в манифесте не совпадает) — тесты падают с подсказкой
+     `make web`; пропускаются они только там, где бандла нет вовсе.
 """
 
 from __future__ import annotations
@@ -203,8 +203,8 @@ def bundle():
         pytest.skip("нет web/data — сначала `make web`")
     man = json.loads(manifest.read_text())
     for rel, sha in man["inputs"].items():
-        if _sha(PROJECT_ROOT / rel) != sha:
-            pytest.skip(f"web/data собран из другой версии {rel} — пересобери: `make web`")
+        # бандл лежит в git (решение Ангелины 13.11.2026): устаревший бандл — ошибка, а не пропуск
+        assert _sha(PROJECT_ROOT / rel) == sha, f"web/data собран из другой версии {rel} — пересобери: `make web`"
     load = lambda name: json.loads((DATA / name).read_text())  # noqa: E731
     cur = load("current.json")
     return {"manifest": man, "current": cur, "rows": {r["iso3"]: r for r in cur["rows"]}, "load": load,
