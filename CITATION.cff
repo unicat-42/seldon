@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: "Seldon: Out-of-Sample Forecasting of Armed Conflicts, Currency Crises, and Banking Crises"
+message: "If you use Seldon's code, evaluation benchmarks, or frozen forecast vintages in your research, please cite it using the metadata below."
+type: software
+authors:
+  - given-names: Angelina
+    family-names: Volina
+repository-code: "https://github.com/unicat-42/seldon"
+url: "https://github.com/unicat-42/seldon"
+license: MIT
+version: "0.1.0"
+date-released: "2026-11-12"
+abstract: >-
+  Point-in-time, strictly out-of-sample probabilistic early-warning models for state-based armed
+  conflict onset, currency devaluations, and systemic banking crises across 174 countries, with a
+  regional lens on the 15 post-Soviet states, automated look-ahead leakage tests, publication-lag
+  enforcement, and immutable monthly forecast vintages.
+keywords:
+  - armed conflict prediction
+  - conflict forecasting
+  - currency crisis
+  - banking crisis
+  - financial crisis prediction
+  - early warning system
+  - geopolitical risk
+  - country risk
+  - point-in-time backtesting
+  - out-of-sample forecasting
+  - publication lags
+  - exchange market pressure
+  - post-Soviet economies
+  - UCDP
+  - PITF

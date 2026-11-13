@@ -1,0 +1,33 @@
+# Seldon (Селдон): Armed Conflict, Currency & Banking Crisis Forecasting
+
+> Point-in-time, strictly out-of-sample probabilistic early-warning system estimating country-level risks of state-based armed conflict, currency devaluations, and systemic banking crises across 174 countries, with a regional lens on the 15 post-Soviet states, automated look-ahead leakage tests, publication-lag enforcement, and frozen monthly forecast vintages.
+
+Repository: https://github.com/unicat-42/seldon
+Languages: English (`README.md`, `ROADMAP.md`, `reports/README.md`) and Russian (`README.ru.md`, `ROADMAP.ru.md`, `reports/README.ru.md`, session reports, static web UI).
+
+## Core Domains & Benchmarks (Post-Audit, Expanding Window)
+
+- **State-based armed conflict onset (`state_war25`, >= 25 battle deaths in T+1, UCDP 26.1):** `pitf` logistic model achieves `0.825` [0.780, 0.867] pooled ROC AUC (`0.859` within-year) across 4,075 peaceful country-years (1996–2025), beating conflict-decay baseline (`0.761`) by `+0.064`.
+- **Annual currency devaluation (`deval25`, >= 25% Dec-to-Dec USD depreciation over t+1..t+2):** `logit_long` achieves `0.702` [0.639, 0.768] pooled ROC AUC (`0.739` within-year) globally; `0.586` on post-Soviet states.
+- **Monthly FX jump (`deval15`, >= 15% single-month USD jump within 12 months):** production `econ_kr` achieves `0.640` globally (`0.439` post-Soviet); live peg-and-reserve-drain challenger `live_fx_swap` achieves `0.669` [0.622, 0.738] globally (`0.744` within-year).
+- **Systemic banking crisis (t+1..t+2, Bank of England / Bluwstein et al. ExtraTrees transfer to out-of-JST BIS countries):** `0.671` [0.517, 0.798] pooled AUC (`0.745` within-year) with yield curve (`26` countries); `0.546` without yield curve / broad money.
+
+## Key Documentation
+
+- [README (English)](README.md): Overview, out-of-sample scorecard, blind spots, forecast schema, architecture, reproduction commands, data sources.
+- [README (Russian / Русский)](README.ru.md): Полное описание проекта, честные метрики после аудита, ограничения и инструкция по воспроизведению.
+- [Post-Audit Roadmap (English)](ROADMAP.md): Stages 1–5 (leak audit, 5-layer architecture, publication lags, V-Dem/EPR/dyads/REER/contagion experiments, static web showcase).
+- [Дорожная карта (Русский)](ROADMAP.ru.md): Подробная история этапов 1–5 и решений по моделям.
+- [Reports & CSV Index (English)](reports/README.md): Guide to `reports/scorecard.csv`, `reports/risk_2025_26.csv`, sensitivity variants, and pre-audit archive.
+- [Citation Metadata](CITATION.cff): Machine-readable citation record (MIT for code, CC BY 4.0 for reports and forecast vintages).
+
+## Key Code & Data Entrypoints
+
+- `src/seldon/core/temporal.py`: Point-in-time `as_of` contract and `available_from` publication lags (IMF, GMD, WDI, BIS, UCDP, V-Dem, EPR, IRR, Bruegel REER).
+- `src/seldon/core/entities.py`: Unified country identifiers (`ISO3`, Gleditsch–Ward, COW, Polity, FIPS), currency unions (`EUR`, `USD`, `XOF`, `XAF`), and bilingual country names.
+- `src/seldon/domains/conflict/`: State-based armed conflict panels, PITF/structural/monthly/network features, directed dyads, onset & continuation models.
+- `src/seldon/domains/currency/`: Monthly Exchange Market Pressure (`EMP`), `deval15` jump models, `live_fx_swap` peg-defense challenger, annual `deval25` models, bilateral trade contagion.
+- `src/seldon/domains/banking/`: Bank of England JST replication (`econ_boe.py`) and BIS emerging-market transfer (`econ_boe_em.py`).
+- `src/seldon/publish/`: Master country risk table (`risk_table.py`), immutable monthly snapshots (`vintage.py`), log-odds attributions & two-way clustered CIs (`explain.py`), static web JSON exporter (`web_export.py`).
+- `forecasts/2026-11/`: Inaugural frozen prospective forecast vintage (`predictions.csv`, `metadata.json` with SHA-256 checksums).
+- `tests/test_no_leakage.py` & `tests/test_web_export.py`: Automated future-blindness, publication-lag, and web data-contract test suite (`make test`).

@@ -28,6 +28,7 @@
     uv run python -m seldon download cepii
     uv run python -m seldon download gli
     uv run python -m seldon download vparty
+    uv run python -m seldon download vdem_vintages
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -56,7 +57,7 @@ from seldon.sources.parallel import REINHART_FILE, REINHART_SHA256, REINHART_URL
 from seldon.sources.epr import EPR_VERSION
 from seldon.sources.ucdp import CANDIDATE_LIVE, CANDIDATE_PREV, UCDP_VERSION
 from seldon.sources.unga import UNGA_DATAVERSE_ID, UNGA_FILE
-from seldon.sources.vdem import VDEM_COMMIT
+from seldon.sources.vdem import VDEM_COMMIT, VDEM_RELEASES, vintage_file, vintage_url
 from seldon.sources.vparty import VPARTY_SHA256, VPARTY_URL
 
 # ---------------------------------------------------------------------------
@@ -283,6 +284,13 @@ SOURCES: dict[str, dict] = {
         "files": {"vparty.RData": VPARTY_URL},
         "unzip": False,
         "sha256": {"vparty.RData": VPARTY_SHA256},
+    },
+    # Прошлые релизы V-Dem (v10 … v15, 2020–2025) — те же файлы R-пакета института на более
+    # ранних коммитах; ≈ 175 МБ. Нужны только исследованию `democ_fx`, в `all` не входят.
+    "vdem_vintages": {
+        "files": {vintage_file(r): vintage_url(r) for r in VDEM_RELEASES},
+        "unzip": False,
+        "sha256": {vintage_file(r): spec[2] for r, spec in VDEM_RELEASES.items()},
     },
     # REER Bruegel (Darvas), релиз 11.10.2026: месячный реальный эффективный курс, 178 стран.
     # Прямая ссылка на архив релиза; см. `sources/bruegel.py`.
@@ -660,6 +668,7 @@ FETCHERS = {
     "cepii": lambda: fetch_static("cepii"),
     "gli": lambda: fetch_static("gli"),
     "vparty": lambda: fetch_static("vparty"),
+    "vdem_vintages": lambda: fetch_static("vdem_vintages"),  # не входит в `all`: нужен только `democ_fx`
     "ucdp": lambda: fetch_static("ucdp"),
     "ucdp_candidate": lambda: fetch_static("ucdp_candidate"),
     "pitf": lambda: fetch_static("pitf"),

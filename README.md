@@ -1,270 +1,234 @@
-# Селдон
+**English** · [Русская версия](README.ru.md)
 
-Модель, которая оценивает вероятность войн, валютных и банковских кризисов по странам мира,
-с углублением в постсоветское пространство. Название — в честь Гэри Селдона из «Основания»
-Азимова. Цель приземлённая: прогноз, которому можно верить ровно настолько, насколько он
-проверен, — и честная запись того, где он слеп.
+# Seldon — Armed Conflict, Currency & Banking Crisis Forecasting
 
-Это личный исследовательский проект, не продукт и не рекомендация. Прогноз — это
-вероятность, а не «да / нет»; события редкие, ложных тревог много, и это нормально.
+Country-level early-warning models that estimate the probability of **state-based armed conflict**,
+**currency devaluations**, and **systemic banking crises** across 174 countries, with a dedicated
+regional lens on the 15 post-Soviet states. Named after Hari Seldon from Isaac Asimov's
+*Foundation*. The goal is pragmatic: probabilistic forecasts you can trust strictly to the extent
+they have been verified out-of-sample — and an explicit record of where they are blind.
 
-## Главный принцип: проверять вслепую
+This is an open research project, not a commercial product or investment advice. Forecasts are
+probabilities, not binary calls: crisis onsets are rare events, false alarms are expected, and
+calibration and ranking matter more than point cutoffs.
 
-Модель легко «предсказывает» прошлое, если случайно дать ей подсмотреть в будущее. В ноябре
-2026 года внешний аудит нашёл в проекте такие утечки почти в каждом блоке; после их
-устранения часть красивых цифр исчезла. С тех пор всё устроено вокруг трёх правил.
+## Core Principle: Strictly Out-of-Sample & Point-in-Time
 
-1. **Проверка вслепую (`out-of-sample`).** Модель учится на прошлом и предсказывает период,
-   которого не видела; так год за годом, расширяющимся окном. У каждого контура есть функция
-   `forecast_asof`, и автотест проверяет: если испортить все данные после даты прогноза,
-   прогноз не меняется.
-2. **Лаги публикации.** Данные выходят с опозданием: ВВП за год t появляется весной t+1.
-   Годовой прогноз делается «на 1 января» и пользуется только тем, что к этому дню
-   опубликовано: курс и история войн — за год t, макроданные — за t−1.
-3. **Реестр замороженных прогнозов.** Проверка на истории — всё ещё оценка задним числом.
-   Раз в месяц прогнозы записываются в `forecasts/ГГГГ-ММ/` вместе с контрольными суммами
-   данных и кода и фиксируются коммитом. Сверка с тем, что случится, — единственная проверка,
-   которую нельзя подогнать.
+Macroeconomic and conflict models easily "predict" the past when subtle look-ahead leakage creeps
+in. In November 2026, an external audit uncovered look-ahead leaks across nearly every block of the
+early prototype; once fixed, several flattering numbers disappeared. Everything in Seldon is now
+built around three invariants:
 
-## Что получилось: честное качество
+1. **Expanding-window out-of-sample backtesting (`forecast_asof`).** Models train strictly on past
+   observations and predict unseen future windows, stepping forward year by year (or month by
+   month). Every pipeline exposes a `forecast_asof` contract, and automated tests verify that
+   corrupting or deleting all data after the forecast origin leaves predictions unchanged to $10^{-12}$.
+2. **Explicit publication lags (`available_from`).** Macroeconomic statistics arrive late: annual
+   GDP for year $t$ is published in spring $t+1$. Annual forecasts are issued "as of January 1" and
+   only use series already published by that date: exchange rates and conflict history through $t$,
+   annual macro fundamentals through $t-1$.
+3. **Immutable forecast vintages.** Historical backtests are still hindsight evaluations. Once a
+   month, live forecasts are frozen into `forecasts/YYYY-MM/` alongside SHA-256 checksums of code
+   and raw data, committed to Git, and scored prospectively against realized events.
 
-Проверка вслепую после аудита и введения лагов публикации. AUC (area under ROC curve) — доля
-пар «событие / не событие», которые модель упорядочила правильно: 0,5 — монетка, 1 — идеально.
+## Out-of-Sample Performance (Post-Audit)
 
-- **Сквозной AUC** считается по всем страна-годам сразу: чтобы он был высоким, модель должна
-  угадывать и то, *в каких странах* риск выше, и то, *в какие годы*.
-- **AUC внутри года** — среднее по годам: умеет ли модель отличать страны друг от друга в
-  один и тот же год. Если он заметно выше сквозного, модель различает страны, но не
-  чувствует общих волн (годы, когда кризис приходит ко многим сразу).
-- **Интервал** — 95 %, блочный бутстрэп по годам. Если он накрывает 0,5, модель от монетки
-  не отличима.
-- **Базовая частота** — как часто событие вообще случается в выборке.
+Expanding-window out-of-sample evaluation with publication lags enforced. **ROC AUC** is the share
+of (event, non-event) pairs ranked in the right order: `0.5` is a coin flip, `1.0` is ideal.
 
-| Что предсказываем | Выборка | Базовая частота | Модель | Сквозной AUC [95 %] | AUC внутри года |
+- **Pooled AUC** is computed across all country-periods jointly: to score high, a model must tell
+  both *which countries* are riskier and *which years* are riskier.
+- **Within-year AUC** averages cross-sectional AUC year by year: whether the model ranks countries
+  correctly in the same year. When within-year AUC noticeably exceeds pooled AUC, the model
+  separates countries well but misses synchronized global or regional crisis waves.
+- **95% CI** uses year-blocked bootstrap (500 replicates). If the interval covers `0.5`, the model
+  is indistinguishable from a coin flip.
+- **Base rate** is the empirical event frequency in the evaluation sample.
+
+| Target Event | Sample | Base Rate | Model | Pooled AUC [95% CI] | Within-Year AUC |
 | --- | --- | --- | --- | --- | --- |
-| Начало государственной войны (≥ 25 погибших) в следующем году | мир, страны без войны; 151 начало за 1996–2025 | 3,7 % | `pitf` (логрегрессия) | **0,825** [0,780; 0,867] | 0,859 |
-| | | | база: «память о прошлых войнах» | 0,761 [0,707; 0,816] | 0,788 |
-| Девальвация ≥ 25 % за год в ближайшие два года | мир; 258 событий за 1996–2023 | 6,8 % | логрегрессия | **0,702** [0,639; 0,768] | 0,739 |
-| | | | деревья | 0,686 [0,603; 0,776] | 0,781 |
-| | постсоветские; 37 событий | 14,5 % | логрегрессия | 0,586 [0,468; 0,745] | 0,672 |
-| Скачок курса ≥ 15 % за месяц в ближайшие 12 месяцев | мир; 2141 окно за 1996–2024 | 4,1 % | логрегрессия | **0,640** [0,586; 0,701] | 0,698 |
-| | постсоветские; 370 окон | 9,7 % | логрегрессия | 0,446 [0,326; 0,561] | 0,578 |
-| Системный банковский кризис в ближайшие два года | страны BIS вне обучающей выборки; 9 предкризисных лет за 1990–2015 | 3,3 % | деревья Банка Англии, с кривой доходности | 0,671 [0,517; 0,798] | 0,745 |
-| | то же, 30 предкризисных лет | 6,4 % | те же деревья без ставок и денег | 0,546 [0,414; 0,654] | 0,496 |
+| Onset of state-based armed conflict ($\ge$ 25 battle deaths) next year | Global, countries at peace; 151 onsets (1996–2025) | 3.7% | `pitf` (logistic regression) | **0.825** [0.780, 0.867] | 0.859 |
+| | | | baseline: conflict-history decay | 0.761 [0.707, 0.816] | 0.788 |
+| Currency devaluation $\ge$ 25%/yr over the next 2 years (Dec-to-Dec vs USD) | Global, own-currency states; 258 events (1996–2023) | 6.8% | logistic regression (`logit_long`) | **0.702** [0.639, 0.768] | 0.739 |
+| | | | ExtraTrees (`extree_long`) | 0.686 [0.603, 0.776] | 0.781 |
+| | Post-Soviet; 37 events | 14.5% | logistic regression | 0.586 [0.468, 0.745] | 0.672 |
+| Monthly exchange-rate jump $\ge$ 15% within the next 12 months | Global; 2,141 windows (1996–2024) | 4.1% | logistic regression (`econ_kr`) | **0.640** [0.588, 0.700] | 0.696 |
+| | Post-Soviet; 370 windows | 9.7% | logistic regression (`econ_kr`) | 0.439 [0.325, 0.548] | 0.550 |
+| Monthly exchange-rate jump $\ge$ 15% within 12 months (challenger) | Global; 2,141 windows (1996–2024) | 4.1% | `live_fx_swap` (live peg & reserve drain) | **0.669** [0.622, 0.738] | 0.744 |
+| | Post-Soviet; 370 windows | 9.7% | `live_fx_swap` | 0.471 [0.371, 0.565] | 0.542 |
+| Systemic banking crisis over the next 2 years | BIS countries outside JST training sample; 9 pre-crisis years (1990–2015) | 3.3% | Bank of England ExtraTrees (`full`, with yield curve) | 0.671 [0.517, 0.798] | 0.745 |
+| | Same, without interest rates & broad money; 30 pre-crisis years | 6.4% | ExtraTrees (`nomoney`) | 0.546 [0.414, 0.654] | 0.496 |
 
-Полная таблица с парными сравнениями — `reports/scorecard.csv` (команда `scorecard`).
-Модель войны лучше базовой на +0,064 [+0,019; +0,104].
+Full paired comparisons are in `reports/scorecard.csv` (`uv run python -m seldon scorecard`).
+The `pitf` conflict onset model beats the conflict-memory baseline by `+0.064` [`+0.019`, `+0.104`].
 
-### Что модели умеют
+### Where the Models Work
 
-- **Войны.** Хорошо различают страны по риску начала войны: бедность, тип режима, война у
-  соседей и собственная история конфликтов дают 0,83. Азербайджан перед 2020 годом стоял
-  на 3-м месте из 131 страны без войны, Армения — на 11-м.
-- **Валютные кризисы на горизонте года.** Привязанный курс, прошлые девальвации, инфляция и
-  дефицит счёта текущих операций дают 0,70 на мире. За год до кризиса Беларусь-2015 стояла
-  на 1-м месте в мире, Украина и Россия перед 1998-м — на 2-м и 3-м, Узбекистан-2017 — на 9-м.
-- **Банковские кризисы** — только там, где есть рыночная кривая доходности: перевёрнутая
-  кривая вместе с кредитным бумом — рабочий сигнал.
+- **Armed conflict onset.** Structural and neighborhood features (infant mortality, regime type,
+  neighboring wars, and own conflict history) reach `0.825` pooled AUC (`0.859` within-year). Ahead
+  of the 2020 Karabakh war, Azerbaijan ranked **3rd** out of 131 peaceful countries and Armenia **11th**.
+- **Annual currency crises.** Currency pegs, past devaluations, inflation, and current-account
+  deficits reach `0.702` globally. A year before devaluation, Belarus-2015 ranked **1st** in the
+  world, Ukraine and Russia ahead of 1998 ranked **2nd** and **3rd**, and Uzbekistan-2017 ranked **9th**.
+- **Systemic banking crises** — where a market yield curve exists: an inverted yield slope paired
+  with credit booms transfers reasonably well outside the historical JST sample.
 
-### Где модели слепы
+### Known Blind Spots & Limitations
 
-- **Шоки «из ниоткуда».** Украина 2014 и 2022, Грузия 2008, Сирия и Ливия 2011 по истории и
-  структурным признакам не видны: за год до них в данных страны ничего не меняется.
-  То же с девальвациями 2014 года: Украина за год до неё была на 101-м месте из 149,
-  Россия — на 60-м. Межгосударственные войны — отдельная задача (модель пар стран, Этап 3).
-- **Региональные волны.** На постсоветских странах месячная валютная модель не лучше
-  монетки: сквозной AUC 0,45, внутри года 0,58. Причина — кризисы 1998 и 2014 годов пришли
-  в регион одновременно и извне (цена нефти, обвал рубля), а в модели только внутренние
-  индикаторы каждой страны. Внутри одного года модель страны ещё как-то различает, но сам
-  год волны не угадывает. Под это запланированы признаки заражения и условий торговли
-  (Этапы 3–4). Колонка `fx_deval15_12m` в прогнозах есть для всех стран, но для
-  постсоветских ей верить нельзя.
-- **Банковская модель без кривой доходности не работает.** С честным лагом публикации
-  кредит и ВВП известны только за позапрошлый год, и набор признаков без ставок даёт 0,55
-  [0,41; 0,65]. Поэтому банковский прогноз публикуется только для стран с длинной ставкой
-  и своей денежной массой (26 стран); у России, еврозоны и почти всех развивающихся стран его
-  нет — колонка `bank_status` говорит почему.
-- **Не все опоздания учтены.** Месячная статистика МВФ (резервы, цены) выходит с задержкой
-  1–2 месяца, а события UCDP за год — в середине следующего; в проверке они считаются
-  известными сразу. Ревизии данных задним числом тоже не учтены: используются сегодняшние
-  версии рядов. Реальное качество в этих местах может быть ниже.
-- **Малые выборки.** 37 постсоветских девальваций и 9 банковских предкризисных лет — это
-  мало; интервалы широкие, и это не формальность.
+- **"Out-of-the-blue" shocks & interstate wars.** Ukraine 2014 & 2022, Georgia 2008, and Syria &
+  Libya 2011 do not stand out in domestic structural data a year ahead. The same holds for the 2014
+  FX shocks: a year prior, Ukraine ranked 101st of 149 and Russia 60th.
+- **Regional contagion waves.** On post-Soviet countries, the 12-month monthly FX model is no
+  better than a coin flip (`0.439` pooled AUC; `0.471` for the challenger, `0.550` within-year).
+  The 1998 and 2014–2015 crises hit the region simultaneously from external shocks (oil collapse,
+  ruble spillover), whereas the baseline uses domestic indicators. `fx_deval15_12m` is reported for
+  all countries for completeness, **but should not be relied upon for post-Soviet states**.
+- **Banking crisis prediction fails without a yield curve.** Once publication lags are respected
+  (credit and GDP known only through $t-2$), dropping interest rates and money reduces AUC to
+  `0.546` [`0.414`, `0.654`]. We therefore publish banking probabilities **only** for the 26 BIS
+  countries with long-term rates and national broad money; Russia, eurozone members, and most EMs
+  carry an explicit `bank_status` reason instead of a number.
+- **Residual real-time caveats.** IMF international reserves carry a 2-month lag and monthly UCDP
+  events carry a 1-month lag, while remaining monthly IMF series (CPI, rates, money, exports) are
+  treated as contemporaneous. Historical data revisions (vintage macro releases) are not replayed.
+- **Small-sample uncertainty.** 37 post-Soviet annual devaluations and 9 out-of-JST banking
+  pre-crisis country-years produce wide confidence intervals by necessity.
 
-## Прогнозы
+## Forecast Vintages & Risk Table
 
-`forecasts/ГГГГ-ММ/` — замороженные снимки:
+`forecasts/YYYY-MM/` stores immutable monthly forecast snapshots:
 
-- `predictions.csv` — вероятности, места и статусы покрытия по странам;
-- `metadata.json` — точки отсчёта каждого контура, контрольные суммы кода и сырых данных,
-  качество вслепую каждой публикуемой модели.
+- `predictions.csv` — country probabilities, cross-sectional ranks, and coverage status codes;
+- `metadata.json` — `as_of` origins, Git commit & raw-data SHA-256 hashes, and out-of-sample
+  metrics for every published model.
 
-Первый снимок — `forecasts/2026-11/`. Что в нём:
+Columns in the inaugural snapshot `forecasts/2026-11/`:
 
-| Колонка | Что это | Точка отсчёта |
+| Column | Meaning | Forecast Origin (`as_of`) |
 | --- | --- | --- |
-| `p_state_war25_2025` | вероятность государственной войны в 2025 году | 1 января 2025 (данные UCDP кончаются 2024 годом) |
-| `fxa_logit_2026_27`, `fxa_extree_2026_27` | вероятность девальвации ≥ 25 % в 2026 или 2027 | 1 января 2026 |
-| `fx_deval15_12m` | вероятность скачка курса ≥ 15 % за месяц в ближайшие 12 месяцев | последний месяц с курсом (колонка `as_of`) |
-| `bank_jst_extree_full_2026_27` | вероятность системного банковского кризиса в 2026 или 2027 | 1 января 2026 |
-| `fx_regime` | `own` — своя валюта; код (`EUR`, `USD`…) — общая или чужая, своего валютного риска нет; `no_imf_fx` — нет курса в данных МВФ | |
-| `bank_status` | `ok`; `no_yield_curve` — нет длинной ставки; `no_broad_money` — нет своей денежной массы; `no_bis_credit` — нет кредитного ряда BIS | |
+| `p_state_war25_2025` | Probability of state-based armed conflict ($\ge$ 25 deaths) in 2025 | Jan 1, 2025 (in Nov vintage UCDP ended at 2024; live risk table now outputs `p_state_war25_2026` on UCDP 26.1) |
+| `fxa_logit_2026_27`, `fxa_extree_2026_27` | Probability of $\ge$ 25% annual USD devaluation in 2026 or 2027 | Jan 1, 2026 |
+| `fx_deval15_12m` | Probability of $\ge$ 15% single-month FX jump within 12 months | Latest IMF FX month per country (`as_of`) |
+| `bank_jst_extree_full_2026_27` | Probability of systemic banking crisis in 2026 or 2027 | Jan 1, 2026 |
+| `fx_regime` | `own` — national currency; ISO code (`EUR`, `USD`, `XOF`…) — currency union / dollarized (no own FX risk); `no_imf_fx` — missing IMF rate | |
+| `bank_status` | `ok`; `no_yield_curve`; `no_broad_money`; `no_bis_credit` | |
 
-Подробная таблица со всеми описательными индикаторами — `reports/risk_2025_26.csv`. Индикаторы
-в ней — не вероятности и в снимок `predictions.csv` не входят. Текущий стресс: `emp_z_max3`,
-`reserves_g12`, `deval12`, `infl12`, `signals_fired`. Уязвимость режима курса («сжатая
-пружина»): `peg_share12` — доля спокойных месяцев из последних 12 (1 — жёсткая привязка к
-доллару или евро); `reer_peg` — реальное укрепление валюты сверх собственного среднего за
-5 лет, умноженное на `peg_share12` (0 — пружина не натянута); `peg_resfall` — привязка ×
-падение резервов за 12 месяцев (0 — резервы не уходят, пусто — данных нет): «курс держат,
-резервы тратят». Все три считаются по живым рядам (курс, резервы и REER), без замороженной
-классификации режимов IRR.
+The full analytical table `reports/risk_2025_26.csv` additionally includes the challenger column
+`fx_deval15_12m_live` and **descriptive stress indicators** (not probabilities): Exchange Market
+Pressure (`emp_z_max3`), `reserves_g12`, `deval12`, `infl12`, `signals_fired`, and live "coiled
+spring" peg vulnerability metrics (`peg_share12`, `reer_peg` — real appreciation $\times$ peg, and
+`peg_resfall` — peg $\times$ 12-month reserve drain).
 
-## Веб-витрина
+## Static Web Showcase (`web/`)
 
-Статический сайт без сервера: публичный журнал прогнозов, сравнительный скринер и региональная
-линза на 15 постсоветских стран. Данные — JSON, собранные из готовых таблиц; фронтенд — обычные
-файлы в `web/` без сборки.
+A zero-backend static web app serving as a public forecast journal, cross-country screener, and
+post-Soviet regional lens. Precomputed JSON bundles in `web/data/` are read directly by vanilla ES
+modules in `web/` (ready for GitHub Pages; interface currently in Russian, searchable by English
+country names, Russian names, and `ISO3` codes).
 
 ```bash
-make web      # reports/ и forecasts/ → web/data/*.json (≈ 30 секунд; входит в make all)
+make web      # reports/ + forecasts/ → web/data/*.json (~30s; included in make all)
 make serve    # http://localhost:8791
 ```
 
-Экраны: главная (лента рангов исторической проверки, текущие оценки, региональная линза),
-«Прогнозы» (таблица стран с переключением события; состояние хранится в адресе), досье страны
-(покрытие, оценки, история, вклады признаков, происхождение данных), «Архив» замороженных
-выпусков с карточкой записи прогноза, «Метод и данные».
+Contract tests in `tests/test_web_export.py` enforce that:
+- every displayed number matches `reports/risk_2025_26.csv`, `reports/scorecard.csv`, or `forecasts/*`;
+- missing coverage is rendered as an explicit reason (`no_bis_credit`, `shared:EUR`), never `0.0%`;
+- uncertainty intervals appear only for logistic models (trees explicitly state no interval);
+- feature attributions are reported in log-odds ($\beta \cdot z$) with true publication-lagged observation dates.
 
-Собранные данные `web/data/` лежат в git: папку `web/` можно публиковать как есть (например, на
-GitHub Pages). Если таблицы в `reports/` пересчитаны, а данные сайта — нет, тесты упадут.
+## Architecture (`src/seldon/`)
 
-Что сайт обязан соблюдать (проверяется в `tests/test_web_export.py`):
+Five domain-clean layers plus a sandboxed research shelf:
 
-- каждая цифра — из `reports/risk_2025_26.csv`, `reports/scorecard.csv` или `forecasts/*`;
-- пропуск — это причина словами («Нет ряда BIS», «EUR · неприменимо»), а не ноль;
-- интервал оценки есть только у логит-моделей; у деревьев — «Интервал не рассчитан»;
-- вклады признаков — в лог-шансах, с датой наблюдения по лагам публикации.
-
-## Как устроен код
-
-Пять слоёв и исследовательская полка (`src/seldon/`):
-
-```
-core/        общие кирпичи, от предметной области не зависят:
-             entities (коды стран, валютные союзы), panel (сетка периодов, лаги по календарю),
-             temporal (контракт as_of, лаги публикации), calibration, metrics
-sources/     скачивание и чтение сырых файлов; data/raw читается только здесь
-domains/     признаки, целевые и модели по блокам:
-  conflict/    войны: panel, features*, baseline, model_hist; пары стран: dyads, model_dyad
-  currency/    валютные кризисы: месячный блок (kr_*, econ_kr), годовой (long_*, econ_long)
-  banking/     банковские: econ_boe (повторение статьи Банка Англии), econ_boe_em
-evaluation/  backtest (единый цикл проверки вслепую), scorecard (сводка качества)
-publish/     risk_table (таблица риска), vintage (замороженные прогнозы)
-research/    разовые исследования вне конвейера (газеты, поведение вкладчиков, сравнения)
+```text
+core/        domain-agnostic primitives:
+             entities (ISO3 / GW / COW / Polity country codes, currency unions),
+             panel (country×period grids, calendar lags),
+             temporal (as_of contract, available_from publication lags),
+             calibration, metrics (pooled & within-year AUC, block bootstrap)
+sources/     data downloaders and parsers; the ONLY layer reading data/raw/
+domains/     features, targets, and forecasting models by crisis domain:
+  conflict/    armed conflict: panel, features*, baseline, model_hist; dyads, model_dyad
+  currency/    currency crises: monthly EMP/jump (kr_*, econ_kr), annual (long_*, econ_long)
+  banking/     banking crises: econ_boe (Bank of England JST replication), econ_boe_em
+evaluation/  unified expanding-window backtest & scorecard
+publish/     risk_table, vintage snapshots, web_export, explain (log-odds & clustered CIs)
+research/    standalone studies outside the production pipeline (news, bank runs, ViEWS/CF, parties)
 ```
 
-### Тесты на утечки будущего
+### Anti-Leakage Test Suite
 
-`tests/test_no_leakage.py`, 35 тестов, несколько секунд, на маленьких синтетических панелях
-(сырые данные не нужны — поэтому они идут в CI на каждый коммит):
+`tests/test_no_leakage.py` and `tests/test_web_export.py` (90+ tests running in seconds on compact
+synthetic panels and the checked-in web bundle — no raw data needed, executed in GitHub Actions CI):
 
-- **слепота к будущему** — для каждого контура портим все данные после даты прогноза
-  (шум в тысячи раз и пропуски): прогноз обязан совпасть до 10⁻¹². Отдельный тест
-  проверяет сам способ: заведомо «текущая» функция этим же приёмом ловится;
-- **лаги публикации** — портим всё, что к дате прогноза ещё не вышло (макроданные текущего
-  года, список сторон войны текущего года): прогноз обязан совпасть, а без лага — измениться;
-- **согласованность целевой и оценки** — строка участвует в оценке, только если событие в
-  её окне может быть засчитано;
-- **коды стран и валютные союзы.**
+- **Future blindness** — corrupting all rows after `as_of` with extreme noise or `NaN`s leaves
+  forecasts identical to $10^{-12}$ (plus a meta-test proving a deliberately leaky function fails).
+- **Publication lags** — corrupting data not yet released by `as_of` (current-year GDP, current-year
+  UCDP ACD belligerent lists, unlagged IMF reserves) leaves forecasts unchanged.
+- **Target–evaluable alignment**, **currency-union exclusions**, and **web bundle SHA-256 parity**.
 
-Архитектурные правила, которые эти тесты сторожат, записаны в `CLAUDE.md`
-(«Архитектурные инварианты»).
+## Reproducing From Scratch
 
-## Как воспроизвести
-
-Нужен [`uv`](https://docs.astral.sh/uv/) и `pdftotext` (пакет `poppler`: `brew install poppler`
-или `apt install poppler-utils`).
+Requires Python $\ge 3.12$, [`uv`](https://docs.astral.sh/uv/), and `pdftotext` (`poppler`:
+`brew install poppler` on macOS or `apt install poppler-utils` on Ubuntu/Debian).
 
 ```bash
-uv sync          # окружение
-make test        # автотесты, данные не нужны
-make data        # скачать сырые данные в data/raw (около 1 ГБ)
-make all         # весь конвейер с нуля: панели → модели → таблица риска → сводка качества
-make vintage     # заморозить прогнозы в forecasts/ГГГГ-ММ/
+uv sync          # install locked dependencies
+make test        # run anti-leakage & contract test suite (no raw data required)
+make data        # download raw public datasets into data/raw (~1 GB)
+make all         # full pipeline: panels → models → risk table → scorecard → web/data
+make vintage     # freeze monthly snapshot into forecasts/YYYY-MM/
 ```
 
-Одна оговорка про `make data`: сайт МВФ не отдаёт скриптам статью Laeven–Valencia (IMF
-WP/18/206), из которой берётся хроника кризисов. Команда скажет, откуда скачать PDF
-браузером и куда положить (`data/raw/lv/wp18206.pdf`), и при повторном запуске проверит
-контрольную сумму.
+> **Note on `make data`:** The IMF website blocks automated downloads of the Laeven & Valencia
+> (2018) working paper PDF (`IMF WP/18/206`). The command prints the exact URL and target path
+> (`data/raw/lv/wp18206.pdf`) and verifies its SHA-256 checksum on re-run.
 
-Любой шаг отдельно: `uv run python -m seldon <команда>`; список команд — `uv run python -m seldon`.
-`make variants` — срезы для сравнения, `make replicate` — повторение статьи Банка Англии.
+Run individual steps via `uv run python -m seldon <command>` (run without arguments to list all CLI
+commands). `make variants` runs sensitivity slices and Stage 3–4 candidate models; `make replicate`
+reproduces Bluwstein et al. (Bank of England) on JST. Re-running `make all` on identical inputs
+reproduces CSV tables byte-for-byte (6-decimal formatting eliminates multi-threaded tree float noise).
 
-Повторный `make all` на тех же данных даёт те же файлы байт в байт: таблицы пишутся с шестью
-знаками после запятой (многопоточные деревья шумят в 17-м).
+## Data Sources
 
-## Данные
-
-| Источник | Что берём |
+| Source | Usage in Seldon |
 | --- | --- |
-| [UCDP](https://ucdp.uu.se) 26.1 | события с погибшими (GED), стороны конфликтов (UCDP/PRIO ACD) — целевая по войнам |
-| [Gleditsch & Ward](http://ksgleditsch.com/data-4.html), [COW Direct Contiguity 3.2](https://correlatesofwar.org/data-sets/direct-contiguity/) | список государств и кто с кем граничит |
-| [Polity5](https://www.systemicpeace.org/inscrdata.html), [Всемирный банк](https://data.worldbank.org) | тип режима, детская смертность, население, годовой индекс цен |
-| [V-Dem](https://github.com/vdeminstitute/vdemdata) v16, [EPR](https://icr.ethz.ch/data/epr/) 2023 | институты, поляризация, репрессии; этническое исключение и трансграничная родня — проверены вслепую, в боевую модель не вошли (прироста нет) |
-| [Идеальные точки ГА ООН](https://dataverse.harvard.edu/dataset.xhtml?persistentId=hdl:1902.1/12379) (релиз 2026), [COW Dyadic MID 4.02](https://correlatesofwar.org/data-sets/mids/), военные расходы Всемирного банка | модель пар стран: внешнеполитическая дистанция, милитаризованные споры, асимметрия потенциалов — проверена вслепую, в таблицу риска не вошла |
-| [IRR](https://www.ilzetzki.com/irr-data) (режим курса, релиз 2021), [Bruegel](https://www.bruegel.org/publications/datasets/real-effective-exchange-rates-for-178-countries-a-new-database) (REER, релиз 11.10.2026), краткосрочный долг и резервы Всемирного банка, сырьевые условия торговли МВФ | структурные признаки валютных моделей: привязка, запас резервов, реальный эффективный курс, условия торговли — проверены вслепую; в месячной модели прирост на мире есть, но получен до 2010 года; в таблицу риска не вошли |
-| [МВФ](https://data.imf.org), месячные ряды | курс, резервы, цены, ставки, деньги, экспорт |
-| [Global Macro Database](https://www.globalmacrodata.com) 2026_09 | годовые макроданные и хроники кризисов |
-| [BIS](https://data.bis.org) | кредит частному сектору |
-| [JST Macrohistory](https://www.macrohistory.net/database/) R6, [код Банка Англии](https://github.com/bank-of-england/MachineLearningCrisisPrediction) | данные и модель Bluwstein и др. для банковских кризисов |
-| Laeven–Valencia (2018), IMF WP/18/206 | хроника банковских и валютных кризисов |
-| REIGN, Mass Mobilization, [conflictforecast.org](https://conflictforecast.org), PITF, Lenta.ru, ЦБ РФ | исследовательские блоки и эталоны для сравнения |
+| [UCDP](https://ucdp.uu.se) 26.1 | Georeferenced Event Dataset (GED), Candidate Events, UCDP/PRIO Armed Conflict Dataset (ACD) |
+| [Gleditsch & Ward](http://ksgleditsch.com/data-4.html), [COW Direct Contiguity 3.2](https://correlatesofwar.org/data-sets/direct-contiguity/) | Independent state system membership and land/sea contiguity |
+| [Polity5](https://www.systemicpeace.org/inscrdata.html), [World Bank WDI](https://data.worldbank.org) | Regime authority characteristics, infant mortality, population, CPI, external debt |
+| [V-Dem](https://github.com/vdeminstitute/vdemdata) v16, [ETH EPR](https://icr.ethz.ch/data/epr/) 2023 | Institutional indices, polarization, ethnic power exclusion & transborder kin (tested in Stage 3.1) |
+| [UNGA Ideal Points](https://dataverse.harvard.edu/dataset.xhtml?persistentId=hdl:1902.1/12379), [COW Dyadic MID 4.02](https://correlatesofwar.org/data-sets/mids/), World Bank military expenditure | Directed dyadic conflict model: foreign-policy alignment, militarized disputes, capability asymmetry |
+| [Ilzetzki–Reinhart–Rogoff](https://www.ilzetzki.com/irr-data), [Bruegel REER](https://www.bruegel.org/publications/datasets/real-effective-exchange-rates-for-178-countries-a-new-database), IMF Commodity Terms of Trade | Exchange rate regimes, real effective exchange rates (178 countries), Greenspan–Guidotti reserve adequacy |
+| [IMF SDMX API](https://data.imf.org) | Monthly exchange rates, international reserves, CPI, interest rates, broad money, exports, bilateral trade |
+| [Global Macro Database (GMD)](https://www.globalmacrodata.com) 2026_09 | Annual macroeconomic fundamentals and historical crisis chronologies |
+| [BIS](https://data.bis.org) | Total credit to the private non-financial sector |
+| [JST Macrohistory](https://www.macrohistory.net/database/) R6 & [Bank of England code](https://github.com/bank-of-england/MachineLearningCrisisPrediction) | Historical macro-financial panel and Bluwstein et al. banking crisis benchmark |
+| Laeven & Valencia (2018), IMF WP/18/206 | Systemic banking and currency crisis dates |
+| REIGN, Mass Mobilization, CEPII GeoDist, [conflictforecast.org](https://conflictforecast.org), PITF | Research benchmarks and comparison baselines |
 
-Данные в репозиторий не кладутся — только код, который их скачивает.
+Raw data are never committed to Git — only deterministic downloaders and SHA-256 verification.
 
-## Что дальше
+## Roadmap & Project Status
 
-План — в `ROADMAP.md`.
+Detailed milestone history and benchmark logs are in [ROADMAP.md](ROADMAP.md) ([на русском](ROADMAP.ru.md)),
+and an index of all generated tables and session reports is in [reports/README.md](reports/README.md)
+([на русском](reports/README.ru.md)).
 
-- **Этап 3. Структурные признаки на горизонте 1–2 года.** Для войн: актуальные данные о
-  режимах (V-Dem вместо замороженного Polity), этническое исключение (EPR), пары стран —
-  военная асимметрия, территориальные споры, разворот внешней политики. Для валют: режим
-  курса, резервы к краткосрочному долгу, реальный эффективный курс, сырьевые условия торговли.
-  Первый чекпоинт (3.1) сделан: V-Dem и EPR проверены вслепую и прироста не дали —
-  `reports/2026-11-12-session-stage3-1.md`. Второй (3.2) сделан: модель пар стран отличает
-  опасные пары от спокойных (AUC 0,85 против 0,79 у простой базы), а два канала риска —
-  внутренний и внешний — дают страновому прогнозу небольшой прирост на границе значимости
-  (+0,021 [−0,001; +0,043]); Грузию-2008 и Украину-2014 она не видит —
-  `reports/2026-11-12-session-stage3-2.md`. Третий (3.3) сделан: привязка курса, запас
-  резервов, реальный эффективный курс и условия торговли дают месячной валютной модели
-  значимый прирост на мире (+0,054 [+0,014; +0,099]), но он получен до 2010 года; годовой
-  модели и постсоветским странам они не помогают — `reports/2026-11-12-session-stage3-3.md`.
-  Этап закрыт 13.11.2026: вероятности витрины не менялись, в таблицу риска добавлены два
-  описательных индикатора привязки.
-- **Этап 4. Месячный слой на 1–6 месяцев.** Три чекпоинта: 4.1 — валютное заражение по
-  торговым связям и спред параллельного курса (горизонты 3, 6 и 12 месяцев); 4.2 — месячная
-  модель эскалации войн с живыми предвоенными стычками вместо замороженной хроники споров;
-  4.3 — сетевое заражение конфликтов, сигналы «критического замедления», отбор победителей
-  в витрину и декабрьский снимок `forecasts/2026-12/`. Чекпоинт 4.1 сделан: заражение даёт
-  месячной модели небольшой значимый прирост (+0,04 на мире на всех трёх горизонтах) и первый
-  сдвиг на постсоветских странах, но поверх структурного набора ничего не добавляет; открытых
-  рядов параллельного курса для постсоветских стран нет. Лучшая находка чекпоинта —
-  «привязку защищают резервами»: индикатор добавлен в таблицу риска, в прогнозных колонках
-  ничего не менялось. Отчёт: `reports/2026-11-13-session-stage4-1.md`.
+- **Stages 1–2 (Completed):** Post-audit leak elimination, 5-layer architecture, publication-lag
+  enforcement (`available_from`), and inaugural frozen forecast vintage `forecasts/2026-11/`.
+- **Stage 3 (Completed):** 1–2 year structural features (V-Dem, EPR, directed country dyads, IRR
+  regimes, Bruegel REER, Greenspan–Guidotti, IMF commodity terms of trade). Production probabilities
+  kept parsimonious; live peg-vulnerability indicators added to the risk table.
+- **Stage 4 (Wrapping up):** 3–12 month horizon — trade-network FX contagion & peg-defense reserve
+  drain (`peg_resfall`, 4.1); monthly conflict escalation with live UCDP sub-war clashes (4.2);
+  conflict network contagion, critical slowing down tests (rejected), and selection of challenger
+  `fx_deval15_12m_live` alongside production models (4.3). Next: `forecasts/2026-12/` vintage in December.
+- **Stage 5 (Completed):** Zero-backend static web showcase (`web/`) with full data-contract tests.
 
-Каждый новый признак проходит ту же проверку: вслепую, с лагом публикации, против
-предыдущей модели, с интервалом.
+## Citation & License
 
-## Материалы
-
-- `reports/` — отчёты по сессиям и таблицы; что актуально, а что архив до аудита —
-  `reports/README.md`.
-- Обзор существующих систем прогноза и данных: https://claude.ai/artifact/NUKDLvVMxefGmZnL8GnzQy
-
-## Лицензия
-
-Код проекта распространяется под лицензией MIT (см. `LICENSE`). Отчёты и снимки прогнозов
-(`reports/`, `forecasts/`) — под CC BY 4.0: при цитировании указывайте проект «Селдон».
-Сырые данные в репозиторий не входят и подчиняются условиям своих правообладателей.
+Code is released under the **MIT License** (see [LICENSE](LICENSE)). Analytical reports and frozen
+forecast vintages (`reports/`, `forecasts/`) are licensed under **CC BY 4.0** — please attribute
+**Seldon** (machine-readable citation metadata in [CITATION.cff](CITATION.cff)). Underlying raw
+datasets remain subject to the terms of their respective providers.

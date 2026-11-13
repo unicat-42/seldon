@@ -1,0 +1,19 @@
+# Seldon (Селдон): Armed Conflict, Currency & Banking Crisis Forecasting
+
+> Point-in-time, strictly out-of-sample probabilistic early-warning system estimating country-level risks of state-based armed conflict, currency devaluations, and systemic banking crises across 174 countries, with a regional lens on the 15 post-Soviet states, automated look-ahead leakage tests, publication-lag enforcement, and frozen monthly forecast vintages.
+
+- Repository: https://github.com/unicat-42/seldon
+- English README: https://github.com/unicat-42/seldon/blob/main/README.md
+- Russian README: https://github.com/unicat-42/seldon/blob/main/README.ru.md
+- Post-Audit Roadmap (EN): https://github.com/unicat-42/seldon/blob/main/ROADMAP.md
+- Citation Metadata: https://github.com/unicat-42/seldon/blob/main/CITATION.cff
+
+## Web Showcase Static JSON Endpoints (`web/data/`)
+
+- `data/manifest.json`: Build timestamp, Git commit hash, and SHA-256 checksums of source CSVs.
+- `data/countries.json`: 174 states with `ISO3`, English name, Russian name, search aliases, and post-Soviet flag.
+- `data/current.json`: Current country probabilities, 95% two-way clustered CIs (for logistic models), ranks, coverage statuses (`shared:EUR`, `no_bis_credit`, `no_yield_curve`), and event contexts.
+- `data/scorecard.json`: Out-of-sample ROC AUC (pooled & within-year), Brier scores, and 95% year-blocked bootstrap CIs.
+- `data/archive.json`: Frozen monthly forecast vintages (`forecasts/YYYY-MM/`).
+- `data/meta.json`: Data sources, publication-lag rules (`available_from`), and methodology notes.
+- `data/country/<ISO3>.json`: Per-country dossier (log-odds feature contributions `beta*z` with lagged observation dates, tree inputs, historical out-of-sample track record).

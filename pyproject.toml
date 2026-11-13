@@ -8,7 +8,40 @@ packages = ["src/seldon"]
 [project]
 name = "seldon"
 version = "0.1.0"
-description = "Селдон: прогноз войн и экономических кризисов, глобально и в постсоветском пространстве"
+description = "Out-of-sample probabilistic forecasting of armed conflicts, currency crises, and systemic banking crises across 174 countries (with a post-Soviet focus) — Селдон: прогноз войн, валютных и банковских кризисов"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Angelina Volina" },
+]
+keywords = [
+    "armed-conflict-prediction",
+    "conflict-forecasting",
+    "currency-crisis",
+    "banking-crisis",
+    "financial-crisis",
+    "early-warning-system",
+    "geopolitical-risk",
+    "country-risk",
+    "macroeconomics",
+    "econometrics",
+    "point-in-time",
+    "out-of-sample",
+    "post-soviet",
+    "ucdp",
+    "psychohistory",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Natural Language :: Russian",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.12"
 dependencies = [
     "jupyter>=1.1.1",
@@ -26,6 +59,11 @@ dependencies = [
     "tqdm>=4.70.1",
     "xlrd>=2.0.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/unicat-42/seldon"
+Repository = "https://github.com/unicat-42/seldon"
+Documentation = "https://github.com/unicat-42/seldon#readme"
 
 [dependency-groups]
 dev = [
