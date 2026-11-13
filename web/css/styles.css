@@ -88,9 +88,9 @@ button, input, select { font: inherit; color: inherit; }
 .ctx b { font-weight: 500; color: var(--ink); }
 .tag { display: inline-block; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--rule-2); border-radius: 2px; color: var(--ink-2); white-space: nowrap; }
 .tag.dark { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.plate { background: var(--paper-2); border-left: 3px solid var(--rule-2); padding: 12px 16px; font-size: 14px; color: var(--ink-2); }
+.plate { background: var(--paper-2); border-top: 1px solid var(--rule-2); padding: 12px 16px; font-size: 14px; color: var(--ink-2); }
 .plate b { color: var(--ink); font-weight: 500; }
-.plate.war { border-left-color: var(--war); } .plate.fx { border-left-color: var(--fx); } .plate.bank { border-left-color: var(--bank); }
+.plate.war { border-top-color: var(--war); } .plate.fx { border-top-color: var(--fx); } .plate.bank { border-top-color: var(--bank); }
 .banner { background: var(--ink); color: var(--paper); padding: 10px 16px; display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 18px; }
 .banner a { color: var(--paper); }
 .dom-war { --dom: var(--war); } .dom-fx { --dom: var(--fx); } .dom-bank { --dom: var(--bank); }
