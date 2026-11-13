@@ -58,6 +58,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "news_ru": ("seldon.research.news_ru", "[research] газеты: Lenta.ru против EMP рубля"),
     "behavior_ru": ("seldon.research.behavior_ru", "[research] вклады и покупка валюты, Россия"),
     "behavior_world": ("seldon.research.behavior_world", "[research] бегство в валюту и GDELT, все страны"),
+    "party_study": ("seldon.research.party_study", "[research] идеология и смена партии у руля против войн и кризисов: party_study [describe|war|dyad|fx_long|fx_month|bank|cases]"),
 }
 
 

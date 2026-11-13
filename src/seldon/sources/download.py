@@ -26,6 +26,8 @@
     uv run python -m seldon download bruegel
     uv run python -m seldon download parallel
     uv run python -m seldon download cepii
+    uv run python -m seldon download gli
+    uv run python -m seldon download vparty
     uv run python -m seldon download all
 
 Файлы кладутся в data/raw/<источник>/. Уже скачанное не качается повторно
@@ -47,12 +49,15 @@ from tqdm import tqdm
 
 from seldon import DATA_RAW
 from seldon.sources.bruegel import BRUEGEL_URL, BRUEGEL_ZIP
+from seldon.sources.gli import GLI_FILE, GLI_SHA256, GLI_URL
 from seldon.sources.gmd import GMD_VERSION
 from seldon.sources.irr import IRR_FILE, IRR_URL
 from seldon.sources.parallel import REINHART_FILE, REINHART_SHA256, REINHART_URL
 from seldon.sources.epr import EPR_VERSION
 from seldon.sources.ucdp import CANDIDATE_LIVE, CANDIDATE_PREV, UCDP_VERSION
 from seldon.sources.unga import UNGA_DATAVERSE_ID, UNGA_FILE
+from seldon.sources.vdem import VDEM_COMMIT
+from seldon.sources.vparty import VPARTY_SHA256, VPARTY_URL
 
 # ---------------------------------------------------------------------------
 # Источники
@@ -264,6 +269,20 @@ SOURCES: dict[str, dict] = {
         "files": {"dist_cepii.zip": "http://www.cepii.fr/distance/dist_cepii.zip"},
         "unzip": True,
         "sha256": {"dist_cepii.zip": "1854825bab1abe7197f6e47295a7ced5f72c83bc95076768f733c4969ed86780"},
+    },
+    # Global Leader Ideologies (Herre 2023): экономическая идеология главы исполнительной власти,
+    # 1945–2020. CSV из репозитория автора на GitHub, коммит закреплён; см. `sources/gli.py`.
+    "gli": {
+        "files": {GLI_FILE: GLI_URL},
+        "unzip": False,
+        "sha256": {GLI_FILE: GLI_SHA256},
+    },
+    # V-Party V2 (институт V-Dem): экспертная разметка партий в годы выборов, по 2019 год. Файл
+    # официального R-пакета на GitHub, тот же коммит, что у V-Dem v16; см. `sources/vparty.py`.
+    "vparty": {
+        "files": {"vparty.RData": VPARTY_URL},
+        "unzip": False,
+        "sha256": {"vparty.RData": VPARTY_SHA256},
     },
     # REER Bruegel (Darvas), релиз 11.10.2026: месячный реальный эффективный курс, 178 стран.
     # Прямая ссылка на архив релиза; см. `sources/bruegel.py`.
@@ -600,7 +619,6 @@ def fetch_lv() -> None:
     write_manifest(folder, [{"url": LV_URL, "file": LV_FILE, "bytes": dest.stat().st_size, "sha256": got, "skipped": False}])
 
 
-VDEM_COMMIT = "f4dd26922e658442524dfd954bf14f7ebe622d5d"  # «v16 release», 17.03.2026
 VDEM_URL = f"https://raw.githubusercontent.com/vdeminstitute/vdemdata/{VDEM_COMMIT}/data/vdem.RData"
 VDEM_SHA256 = "39b412d39a061c18f20c98e4ad4d6355b05a0441df31be4ee9aec420dc3d95ea"
 
@@ -640,6 +658,8 @@ FETCHERS = {
     "bruegel": lambda: fetch_static("bruegel"),
     "parallel": lambda: fetch_static("parallel"),
     "cepii": lambda: fetch_static("cepii"),
+    "gli": lambda: fetch_static("gli"),
+    "vparty": lambda: fetch_static("vparty"),
     "ucdp": lambda: fetch_static("ucdp"),
     "ucdp_candidate": lambda: fetch_static("ucdp_candidate"),
     "pitf": lambda: fetch_static("pitf"),
@@ -659,7 +679,7 @@ FETCHERS = {
     "cbr": lambda: fetch_static("cbr"),
     "acled": fetch_acled,  # не входит в `all`: требует логин/пароль в .env
 }
-DEFAULT_SOURCES = ["ucdp", "ucdp_candidate", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel", "cepii"]
+DEFAULT_SOURCES = ["ucdp", "ucdp_candidate", "pitf", "conflictforecast", "gw", "cow", "polity", "wdi", "jst", "boe", "gmd", "imf", "bis", "reign", "massmob", "lenta", "cbr", "lv", "vdem", "epr", "unga", "mid", "irr", "bruegel", "parallel", "cepii", "gli", "vparty"]
 
 
 def main(argv: list[str]) -> int:

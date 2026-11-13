@@ -15,6 +15,8 @@
 #                   (`network_features`, `compare_network`), критическое замедление (`econ_csd`,
 #                   `war_csd`) и сводный отбор кандидатов в витрину (`select_showcase`; ≈ 30 минут)
 #   make replicate  повторение статьи Банка Англии на JST (≈ 10 минут, 1000 деревьев)
+#   make party      исследование «идеология и смена партии у руля» (`party_study`; ≈ 25 минут;
+#                   нужны `make all`, `make variants`, `download gli`, `download vparty`); вне конвейера
 #   make risk       пересобрать только таблицу риска (нужны готовые таблицы `make all`)
 #   make test       автотесты на утечки будущего (секунды)
 #   make vintage    заморозить прогнозы в forecasts/ГГГГ-ММ/ (после `make all`; раз в месяц)
@@ -27,7 +29,7 @@
 
 RUN = uv run python -m seldon
 
-.PHONY: all variants replicate risk test data vintage web serve
+.PHONY: all variants replicate party risk test data vintage web serve
 
 # Порядок важен: панель войн → признаки → база → модель войн → хроника LV → месячный
 # валютный блок (ему нужна месячная панель войн) → годовой валютный (нужна LV) →
@@ -109,6 +111,10 @@ variants:
 
 replicate:
 	$(RUN) econ_boe
+
+# Исследование вне боевого конвейера: только читает его таблицы, пишет reports/party_*.csv.
+party:
+	$(RUN) party_study
 
 risk:
 	$(RUN) risk_table

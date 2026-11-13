@@ -1,0 +1,247 @@
+contour,set,model,feature,coef,coef_mean_over_years
+война,vparty,logit,vp_popul,0.0658,0.0625
+война,vparty,logit,vp_antiplural,0.0508,0.1352
+война,vparty,logit,vp_lr,-0.1851,-0.1824
+война,vparty,logit,vp_new,-0.1023,-0.1104
+война,vparty,logit,vp_missing,0.1760,0.1689
+война,arch,logit,gl_left,-0.0775,-0.0841
+война,arch,logit,gl_right,-0.0495,0.0168
+война,arch,logit,gl_none,-0.1169,-0.0188
+война,arch,logit,gl_switch,0.1015,0.2058
+война,arch,logit,gl_leader_new,-0.0675,-0.1084
+война,arch,logit,vp_popul,0.0655,0.0615
+война,arch,logit,vp_antiplural,0.0551,0.1293
+война,arch,logit,vp_lr,-0.1901,-0.2137
+война,arch,logit,vp_new,-0.1140,-0.1461
+война,arch,logit,gl_missing,0.0841,0.0695
+война,arch,logit,vp_missing,0.1490,0.1263
+война,gli,logit,gl_left,-0.0452,-0.0545
+война,gli,logit,gl_right,-0.0772,-0.0512
+война,gli,logit,gl_none,-0.1147,-0.0203
+война,gli,logit,gl_switch,0.0735,0.1830
+война,gli,logit,gl_leader_new,-0.1078,-0.1530
+война,gli,logit,gl_missing,0.0857,0.0775
+война,legit,logit,pl_ideol,0.2054,0.1512
+война,legit,logit,pl_lead,0.1142,-0.0077
+война,legit,logit,pl_perf,-0.1639,-0.1913
+война,legit,logit,pl_nat,-0.0751,-0.1119
+война,legit,logit,pl_soc,-0.3219,-0.3045
+война,legit,logit,pl_cons,-0.1513,-0.0635
+война,legit,logit,pl_rel,-0.0401,-0.0037
+война,legit,logit,pl_missing,0.2581,0.2167
+война,turn,logit,pl_ideol_d2,-0.0046,-0.0385
+война,turn,logit,pl_lead_d2,0.0517,0.1046
+война,turn,logit,pl_turn,-0.0159,-0.0280
+война,turn,logit,pl_leader_new,-0.0137,-0.0222
+война,turn,logit,pl_turnover,-0.0696,0.0128
+война,turn,logit,pl_regime_new,0.0685,-0.0252
+война,turn,logit,pl_missing,0.2777,0.2224
+война,live,logit,pl_ideol,0.1928,0.1522
+война,live,logit,pl_lead,0.0811,-0.0414
+война,live,logit,pl_perf,-0.1584,-0.1862
+война,live,logit,pl_nat,-0.0707,-0.1212
+война,live,logit,pl_soc,-0.3247,-0.3155
+война,live,logit,pl_cons,-0.1494,-0.0519
+война,live,logit,pl_rel,-0.0342,-0.0039
+война,live,logit,pl_ideol_d2,0.0160,-0.0116
+война,live,logit,pl_lead_d2,0.0461,0.1299
+война,live,logit,pl_turn,0.0015,0.0030
+война,live,logit,pl_leader_new,-0.0027,-0.0083
+война,live,logit,pl_turnover,-0.0914,-0.0243
+война,live,logit,pl_regime_new,0.0715,-0.0190
+война,live,logit,pl_missing,0.2579,0.2131
+диады,dyad_arch,logit,b_milex_surge,-0.0062,-0.0420
+диады,dyad_arch,logit,b_gl_right,-0.0443,-0.0279
+диады,dyad_arch,logit,b_gl_left,-0.2124,-0.1055
+диады,dyad_arch,logit,ab_camp_diff,-0.0860,-0.1633
+диады,dyad_arch,logit,b_popul,0.2007,0.0903
+диады,dyad_arch,logit,b_antiplural,0.2227,0.1186
+диады,dyad_arch,logit,dya_missing,0.0638,0.0963
+диады,b_ideol,logit,b_milex_surge,0.0381,-0.0327
+диады,b_ideol,logit,b_nat,0.1363,0.2001
+диады,b_ideol,logit,b_lead,0.2272,0.1724
+диады,b_ideol,logit,b_ideol,-0.0481,-0.0758
+диады,b_ideol,logit,dyl_missing,0.0835,0.1199
+диады,dist,logit,b_milex_surge,0.0473,-0.0277
+диады,dist,logit,ab_ideol_dist,0.1608,0.0233
+диады,dist,logit,ab_char_dist,0.2101,0.1228
+диады,dist,logit,dyl_missing,0.0955,0.0993
+диады,dyad_live,logit,b_milex_surge,0.0457,-0.0257
+диады,dyad_live,logit,b_nat,0.1387,0.1835
+диады,dyad_live,logit,b_lead,0.1916,0.1385
+диады,dyad_live,logit,b_ideol,-0.0935,-0.0890
+диады,dyad_live,logit,b_leader_new,-0.0369,-0.1116
+диады,dyad_live,logit,b_regime_new,0.1495,0.0627
+диады,dyad_live,logit,ab_ideol_dist,0.1571,0.0247
+диады,dyad_live,logit,ab_char_dist,0.1263,0.0666
+диады,dyad_live,logit,dyl_missing,0.1050,0.1096
+валюта годовая,vparty,logit,vp_popul,0.0052,0.0359
+валюта годовая,vparty,logit,vp_antiplural,0.1890,0.1444
+валюта годовая,vparty,logit,vp_lr,-0.1508,-0.0712
+валюта годовая,vparty,logit,vp_new,-0.0782,-0.0337
+валюта годовая,vparty,logit,vp_popul_peg,0.0281,0.0160
+валюта годовая,vparty,logit,vp_popul_def,-0.1878,-0.0388
+валюта годовая,vparty,logit,vp_new_spring,0.0313,0.0195
+валюта годовая,vparty,logit,vp_missing,-0.2131,-0.1450
+валюта годовая,gli,logit,gl_left,-0.0225,0.0241
+валюта годовая,gli,logit,gl_right,-0.0682,-0.0180
+валюта годовая,gli,logit,gl_none,0.0000,0.0000
+валюта годовая,gli,logit,gl_switch,-0.1285,-0.0586
+валюта годовая,gli,logit,gl_leader_new,0.0306,0.0372
+валюта годовая,gli,logit,gl_left_peg,0.1448,0.0724
+валюта годовая,gli,logit,gl_left_def,0.0211,0.0373
+валюта годовая,gli,logit,gl_switch_spring,0.1051,0.0677
+валюта годовая,gli,logit,gl_missing,-0.2918,-0.1373
+валюта годовая,live,logit,pl_ideol,0.4876,0.2225
+валюта годовая,live,logit,pl_lead,0.1598,0.0658
+валюта годовая,live,logit,pl_perf,-0.0962,-0.0550
+валюта годовая,live,logit,pl_nat,-0.2847,-0.1093
+валюта годовая,live,logit,pl_soc,-0.1560,-0.0025
+валюта годовая,live,logit,pl_cons,-0.1576,-0.0540
+валюта годовая,live,logit,pl_rel,-0.2067,-0.1117
+валюта годовая,live,logit,pl_ideol_d2,-0.0356,-0.0247
+валюта годовая,live,logit,pl_lead_d2,-0.0027,-0.0165
+валюта годовая,live,logit,pl_turn,0.0506,0.0232
+валюта годовая,live,logit,pl_leader_new,-0.1572,-0.0734
+валюта годовая,live,logit,pl_turnover,0.0232,0.0086
+валюта годовая,live,logit,pl_regime_new,0.0184,0.0327
+валюта годовая,live,logit,pl_soc_peg,0.0588,0.0315
+валюта годовая,live,logit,pl_lead_peg,-0.2893,-0.1618
+валюта годовая,live,logit,pl_new_spring,0.1603,0.1319
+валюта годовая,live,logit,pl_missing,-0.4351,-0.2135
+валюта месячная h=12,vparty,klr,vp_popul,0.1149,0.1007
+валюта месячная h=12,vparty,klr,vp_antiplural,0.1439,0.2720
+валюта месячная h=12,vparty,klr,vp_lr,-0.1949,-0.2470
+валюта месячная h=12,vparty,klr,vp_new,-0.0832,-0.1251
+валюта месячная h=12,vparty,klr,vp_popul_peg,-0.1461,-0.1873
+валюта месячная h=12,vparty,klr,vp_popul_def,0.1933,0.1991
+валюта месячная h=12,vparty,klr,vp_new_spring,0.0704,0.1676
+валюта месячная h=12,vparty,klr,vp_missing,-0.1706,-0.1847
+валюта месячная h=12,vparty,swap,vp_popul,0.0942,0.0563
+валюта месячная h=12,vparty,swap,vp_antiplural,0.1465,0.2777
+валюта месячная h=12,vparty,swap,vp_lr,-0.2009,-0.2636
+валюта месячная h=12,vparty,swap,vp_new,-0.0665,-0.1077
+валюта месячная h=12,vparty,swap,vp_popul_peg,-0.1041,-0.1163
+валюта месячная h=12,vparty,swap,vp_popul_def,0.1026,0.1036
+валюта месячная h=12,vparty,swap,vp_new_spring,0.0297,0.1160
+валюта месячная h=12,vparty,swap,vp_missing,-0.1527,-0.2005
+валюта месячная h=12,gli,klr,gl_left,0.1377,0.2393
+валюта месячная h=12,gli,klr,gl_right,0.0169,0.0373
+валюта месячная h=12,gli,klr,gl_none,0.0000,0.0000
+валюта месячная h=12,gli,klr,gl_switch,-0.0661,-0.1475
+валюта месячная h=12,gli,klr,gl_leader_new,-0.0308,-0.0053
+валюта месячная h=12,gli,klr,gl_left_peg,-0.0426,-0.1043
+валюта месячная h=12,gli,klr,gl_left_def,0.1713,0.1662
+валюта месячная h=12,gli,klr,gl_switch_spring,0.0652,0.1415
+валюта месячная h=12,gli,klr,gl_missing,-0.1980,-0.2194
+валюта месячная h=12,gli,swap,gl_left,0.1383,0.1248
+валюта месячная h=12,gli,swap,gl_right,0.0163,0.0004
+валюта месячная h=12,gli,swap,gl_none,0.0000,0.0000
+валюта месячная h=12,gli,swap,gl_switch,-0.0507,-0.1249
+валюта месячная h=12,gli,swap,gl_leader_new,-0.0291,-0.0056
+валюта месячная h=12,gli,swap,gl_left_peg,-0.0083,0.0278
+валюта месячная h=12,gli,swap,gl_left_def,0.1000,0.0934
+валюта месячная h=12,gli,swap,gl_switch_spring,0.0374,0.1109
+валюта месячная h=12,gli,swap,gl_missing,-0.2042,-0.3425
+валюта месячная h=12,live,klr,pl_ideol,0.1052,-0.0349
+валюта месячная h=12,live,klr,pl_lead,0.4243,0.3678
+валюта месячная h=12,live,klr,pl_perf,-0.0335,-0.0581
+валюта месячная h=12,live,klr,pl_nat,-0.0816,0.0785
+валюта месячная h=12,live,klr,pl_soc,0.0836,0.1696
+валюта месячная h=12,live,klr,pl_cons,-0.1286,-0.0884
+валюта месячная h=12,live,klr,pl_rel,-0.1458,-0.1289
+валюта месячная h=12,live,klr,pl_ideol_d2,0.0303,-0.0265
+валюта месячная h=12,live,klr,pl_lead_d2,-0.1573,-0.1856
+валюта месячная h=12,live,klr,pl_turn,0.0704,0.0207
+валюта месячная h=12,live,klr,pl_leader_new,-0.0559,-0.0275
+валюта месячная h=12,live,klr,pl_turnover,0.0257,-0.0473
+валюта месячная h=12,live,klr,pl_regime_new,-0.0528,0.0100
+валюта месячная h=12,live,klr,pl_soc_peg,-0.0471,-0.0051
+валюта месячная h=12,live,klr,pl_lead_peg,-0.0661,-0.1270
+валюта месячная h=12,live,klr,pl_new_spring,0.1479,0.1514
+валюта месячная h=12,live,klr,pl_missing,-0.5153,-0.3953
+валюта месячная h=12,live,swap,pl_ideol,0.0894,-0.0510
+валюта месячная h=12,live,swap,pl_lead,0.3941,0.3682
+валюта месячная h=12,live,swap,pl_perf,-0.0075,-0.0433
+валюта месячная h=12,live,swap,pl_nat,-0.0634,0.0938
+валюта месячная h=12,live,swap,pl_soc,0.0707,0.1198
+валюта месячная h=12,live,swap,pl_cons,-0.1342,-0.0984
+валюта месячная h=12,live,swap,pl_rel,-0.1197,-0.1320
+валюта месячная h=12,live,swap,pl_ideol_d2,0.0516,-0.0038
+валюта месячная h=12,live,swap,pl_lead_d2,-0.1723,-0.2144
+валюта месячная h=12,live,swap,pl_turn,0.0589,0.0108
+валюта месячная h=12,live,swap,pl_leader_new,0.0021,0.0089
+валюта месячная h=12,live,swap,pl_turnover,0.0344,-0.0505
+валюта месячная h=12,live,swap,pl_regime_new,-0.0654,-0.0077
+валюта месячная h=12,live,swap,pl_soc_peg,-0.0255,0.0679
+валюта месячная h=12,live,swap,pl_lead_peg,0.0104,-0.0642
+валюта месячная h=12,live,swap,pl_new_spring,0.0391,0.0652
+валюта месячная h=12,live,swap,pl_missing,-0.5615,-0.5041
+валюта месячная h=3,vparty,klr,vp_popul,0.0865,0.0760
+валюта месячная h=3,vparty,klr,vp_antiplural,0.1363,0.1862
+валюта месячная h=3,vparty,klr,vp_lr,-0.1943,-0.1876
+валюта месячная h=3,vparty,klr,vp_new,-0.0559,-0.0407
+валюта месячная h=3,vparty,klr,vp_popul_peg,-0.1292,-0.1549
+валюта месячная h=3,vparty,klr,vp_popul_def,0.1587,0.1037
+валюта месячная h=3,vparty,klr,vp_new_spring,0.0564,0.0828
+валюта месячная h=3,vparty,klr,vp_missing,-0.1248,-0.0974
+валюта месячная h=3,vparty,swap,vp_popul,0.1053,0.0054
+валюта месячная h=3,vparty,swap,vp_antiplural,0.1748,0.2057
+валюта месячная h=3,vparty,swap,vp_lr,-0.2480,-0.2037
+валюта месячная h=3,vparty,swap,vp_new,-0.0599,-0.0467
+валюта месячная h=3,vparty,swap,vp_popul_peg,-0.1393,-0.0343
+валюта месячная h=3,vparty,swap,vp_popul_def,-0.0169,-0.0201
+валюта месячная h=3,vparty,swap,vp_new_spring,0.0196,0.0640
+валюта месячная h=3,vparty,swap,vp_missing,-0.1576,-0.1234
+валюта месячная h=3,gli,klr,gl_left,0.1318,0.1661
+валюта месячная h=3,gli,klr,gl_right,0.0135,-0.0078
+валюта месячная h=3,gli,klr,gl_none,0.0000,0.0000
+валюта месячная h=3,gli,klr,gl_switch,-0.0106,-0.0328
+валюта месячная h=3,gli,klr,gl_leader_new,-0.0691,-0.0434
+валюта месячная h=3,gli,klr,gl_left_peg,-0.0330,-0.0553
+валюта месячная h=3,gli,klr,gl_left_def,0.1210,0.0617
+валюта месячная h=3,gli,klr,gl_switch_spring,0.0896,0.1164
+валюта месячная h=3,gli,klr,gl_missing,-0.1749,-0.1703
+валюта месячная h=3,gli,swap,gl_left,0.1418,0.0733
+валюта месячная h=3,gli,swap,gl_right,0.0069,-0.0365
+валюта месячная h=3,gli,swap,gl_none,0.0000,0.0000
+валюта месячная h=3,gli,swap,gl_switch,0.0007,-0.0215
+валюта месячная h=3,gli,swap,gl_leader_new,-0.0675,-0.0718
+валюта месячная h=3,gli,swap,gl_left_peg,-0.0068,0.0964
+валюта месячная h=3,gli,swap,gl_left_def,0.0431,-0.0227
+валюта месячная h=3,gli,swap,gl_switch_spring,0.0583,0.1191
+валюта месячная h=3,gli,swap,gl_missing,-0.1839,-0.3474
+валюта месячная h=3,live,klr,pl_ideol,0.0833,0.0604
+валюта месячная h=3,live,klr,pl_lead,0.3274,0.2090
+валюта месячная h=3,live,klr,pl_perf,-0.0388,-0.0736
+валюта месячная h=3,live,klr,pl_nat,-0.0703,0.0242
+валюта месячная h=3,live,klr,pl_soc,0.0841,0.1356
+валюта месячная h=3,live,klr,pl_cons,-0.1384,-0.0999
+валюта месячная h=3,live,klr,pl_rel,-0.1096,-0.0802
+валюта месячная h=3,live,klr,pl_ideol_d2,-0.0015,-0.0154
+валюта месячная h=3,live,klr,pl_lead_d2,-0.1629,-0.1314
+валюта месячная h=3,live,klr,pl_turn,0.0363,0.0137
+валюта месячная h=3,live,klr,pl_leader_new,-0.0841,-0.0114
+валюта месячная h=3,live,klr,pl_turnover,0.0310,-0.0016
+валюта месячная h=3,live,klr,pl_regime_new,-0.0562,-0.0335
+валюта месячная h=3,live,klr,pl_soc_peg,-0.0448,-0.0260
+валюта месячная h=3,live,klr,pl_lead_peg,0.0034,-0.0684
+валюта месячная h=3,live,klr,pl_new_spring,0.1466,0.0786
+валюта месячная h=3,live,klr,pl_missing,-0.4751,-0.3006
+валюта месячная h=3,live,swap,pl_ideol,0.0735,0.0380
+валюта месячная h=3,live,swap,pl_lead,0.3211,0.2321
+валюта месячная h=3,live,swap,pl_perf,-0.0058,-0.0660
+валюта месячная h=3,live,swap,pl_nat,-0.0645,0.0335
+валюта месячная h=3,live,swap,pl_soc,0.1016,0.1246
+валюта месячная h=3,live,swap,pl_cons,-0.1471,-0.1069
+валюта месячная h=3,live,swap,pl_rel,-0.0664,-0.0813
+валюта месячная h=3,live,swap,pl_ideol_d2,0.0191,0.0129
+валюта месячная h=3,live,swap,pl_lead_d2,-0.1747,-0.1739
+валюта месячная h=3,live,swap,pl_turn,0.0205,-0.0083
+валюта месячная h=3,live,swap,pl_leader_new,-0.0123,0.0126
+валюта месячная h=3,live,swap,pl_turnover,0.0292,-0.0078
+валюта месячная h=3,live,swap,pl_regime_new,-0.0780,-0.0658
+валюта месячная h=3,live,swap,pl_soc_peg,-0.0617,0.0088
+валюта месячная h=3,live,swap,pl_lead_peg,0.0604,-0.0063
+валюта месячная h=3,live,swap,pl_new_spring,0.0116,0.0260
+валюта месячная h=3,live,swap,pl_missing,-0.5395,-0.4747
