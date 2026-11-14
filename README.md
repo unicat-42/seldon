@@ -49,12 +49,12 @@ of (event, non-event) pairs ranked in the right order: `0.5` is a coin flip, `1.
 | --- | --- | --- | --- | --- | --- |
 | Onset of state-based armed conflict ($\ge$ 25 battle deaths) next year | Global, countries at peace; 151 onsets (1996–2025) | 3.7% | `pitf` (logistic regression) | **0.825** [0.780, 0.867] | 0.859 |
 | | | | baseline: conflict-history decay | 0.761 [0.707, 0.816] | 0.788 |
-| Currency devaluation $\ge$ 25%/yr over the next 2 years (Dec-to-Dec vs USD) | Global, own-currency states; 258 events (1996–2023) | 6.8% | logistic regression (`logit_long`) | **0.702** [0.639, 0.768] | 0.739 |
+| Currency devaluation $\ge$ 25%/yr over the next 2 years (Dec-to-Dec vs USD) | Global, own-currency states; 246 events (1996–2023) | 8.0% | logistic regression (`logit_long`) | **0.677** [0.612, 0.740] | 0.710 |
 | | | | ExtraTrees (`extree_long`) | 0.686 [0.603, 0.776] | 0.781 |
 | | Post-Soviet; 37 events | 14.5% | logistic regression | 0.586 [0.468, 0.745] | 0.672 |
-| Monthly exchange-rate jump $\ge$ 15% within the next 12 months | Global; 2,141 windows (1996–2024) | 4.1% | logistic regression (`econ_kr`) | **0.640** [0.588, 0.700] | 0.696 |
+| Monthly exchange-rate jump $\ge$ 15% within the next 12 months | Global, states only; 2,103 windows (1996–2024) | 4.9% | logistic regression (`econ_kr`) | **0.619** [0.563, 0.680] | 0.669 |
 | | Post-Soviet; 370 windows | 9.7% | logistic regression (`econ_kr`) | 0.439 [0.325, 0.548] | 0.550 |
-| Monthly exchange-rate jump $\ge$ 15% within 12 months (challenger) | Global; 2,141 windows (1996–2024) | 4.1% | `live_fx_swap` (live peg & reserve drain) | **0.669** [0.622, 0.738] | 0.744 |
+| Monthly exchange-rate jump $\ge$ 15% within 12 months (challenger) | Global, states only; 2,103 windows (1996–2024) | 4.9% | `live_fx_swap` (live peg & reserve drain) | **0.658** [0.606, 0.734] | 0.737 |
 | | Post-Soviet; 370 windows | 9.7% | `live_fx_swap` | 0.471 [0.371, 0.565] | 0.542 |
 | Systemic banking crisis over the next 2 years | BIS countries outside JST training sample; 9 pre-crisis years (1990–2015) | 3.3% | Bank of England ExtraTrees (`full`, with yield curve) | 0.671 [0.517, 0.798] | 0.745 |
 | | Same, without interest rates & broad money; 30 pre-crisis years | 6.4% | ExtraTrees (`nomoney`) | 0.546 [0.414, 0.654] | 0.496 |
@@ -68,8 +68,8 @@ The `pitf` conflict onset model beats the conflict-memory baseline by `+0.064` [
   neighboring wars, and own conflict history) reach `0.825` pooled AUC (`0.859` within-year). Ahead
   of the 2020 Karabakh war, Azerbaijan ranked **3rd** out of 131 peaceful countries and Armenia **11th**.
 - **Annual currency crises.** Currency pegs, past devaluations, inflation, and current-account
-  deficits reach `0.702` globally. A year before devaluation, Belarus-2015 ranked **1st** in the
-  world, Ukraine and Russia ahead of 1998 ranked **2nd** and **3rd**, and Uzbekistan-2017 ranked **9th**.
+  deficits reach `0.677` globally. A year before devaluation, Belarus-2015 ranked **1st** in the
+  world, Ukraine and Russia ahead of 1998 ranked **1st** and **3rd**, and Uzbekistan-2017 ranked **7th**.
 - **Systemic banking crises** — where a market yield curve exists: an inverted yield slope paired
   with credit booms transfers reasonably well outside the historical JST sample.
 

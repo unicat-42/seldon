@@ -55,7 +55,7 @@ import numpy as np
 import pandas as pd
 
 from seldon import DATA_PROCESSED, REPORTS
-from seldon.core.entities import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3, shared_currency
+from seldon.core.entities import GW_TO_ISO3, ISO3_TO_SHORT, POST_SOVIET_ISO3, STATE_ISO3, shared_currency
 from seldon.domains.banking import econ_boe_em
 from seldon.domains.conflict import model_hist
 from seldon.domains.conflict.features import FEATURES as HIST_FEATURES
@@ -77,7 +77,7 @@ FX_ANNUAL_TRAIN_THROUGH = 2023  # метка строки t смотрит в t+
 BANK_YEARS = (2024, 2025)
 # только государства системы Gleditsch–Ward: у территорий (Гернси, Гибралтар, Гренландия…)
 # чужая валюта и пустые признаки, флаги пропусков модель читает как риск
-GW_ISO = {v for v in GW_TO_ISO3.values() if v} | POST_SOVIET_ISO3
+GW_ISO = STATE_ISO3  # тот же список, на котором обучаются и оцениваются валютные модели
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ from __future__ import annotations
 import pandas as pd
 
 from seldon import DATA_RAW
+from seldon.core import entities
 
 IMF = DATA_RAW / "imf"
 
@@ -19,10 +20,14 @@ def read_imf(name: str) -> pd.DataFrame:
     return d.rename(columns={"COUNTRY": "iso3", "OBS_VALUE": "value"})
 
 
-def load_dec_fx() -> pd.DataFrame:
-    """Курс к доллару на конец декабря (МВФ, EOP_RT): iso3, year, fx_dec."""
+def load_dec_fx(states_only: bool = True) -> pd.DataFrame:
+    """Курс к доллару на конец декабря (МВФ, EOP_RT): iso3, year, fx_dec. Это вселенная годового
+    валютного контура, поэтому по умолчанию — только государства списка GW
+    (`core.entities.STATE_ISO3`), без зависимых территорий и агрегатов; `False` — весь поток."""
     er = read_imf("exchange_rates")
     er = er[(er.TYPE_OF_TRANSFORMATION == "EOP_RT") & (er.month.dt.month == 12) & (er.value > 0)]
+    if states_only:
+        er = entities.states_only(er)
     er = er.assign(year=er.month.dt.year).groupby(["iso3", "year"], as_index=False).value.first()
     return er.rename(columns={"value": "fx_dec"})
 
@@ -47,7 +52,9 @@ def load_ctot() -> pd.DataFrame:
 
 
 def load_monthly_fx() -> pd.DataFrame:
-    """Курс к доллару на конец месяца (МВФ, EOP_RT), вся история: iso3, month, fx."""
+    """Курс к доллару на конец месяца (МВФ, EOP_RT), вся история: iso3, month, fx. Весь поток,
+    включая агрегаты и территории: отсюда берутся якорь евро (`G163`) и курсы торговых
+    партнёров (Гонконг). Вселенную моделей задают `load_dec_fx` и `econ_kr.load_panel`."""
     er = read_imf("exchange_rates")
     er = er[(er.TYPE_OF_TRANSFORMATION == "EOP_RT") & (er.value > 0)]
     return er.groupby(["iso3", "month"], as_index=False).value.first().rename(columns={"value": "fx"})

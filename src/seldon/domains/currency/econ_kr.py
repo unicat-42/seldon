@@ -63,6 +63,7 @@ from sklearn.preprocessing import StandardScaler
 
 from seldon import DATA_PROCESSED, FLOAT_FORMAT, REPORTS
 from seldon.core.calibration import binned_rate
+from seldon.core import entities
 from seldon.core.entities import ISO3_TO_SHORT, POST_SOVIET_ISO3
 from seldon.core.metrics import auc, auc_within, brier
 from seldon.core.panel import full_grid
@@ -89,7 +90,10 @@ RATE_PRIORITY = ["MMRT_RT_PT_A_PT", "IRTBILL_RT_PT_A_PT", "MFS166_RT_PT_A_PT",
 # ---------------------------------------------------------------------------
 
 
-def load_panel(last_month: str = LAST_MONTH) -> pd.DataFrame:
+def load_panel(last_month: str = LAST_MONTH, states_only: bool = True) -> pd.DataFrame:
+    """Месячные ряды МВФ по странам. `states_only` — только государства списка GW
+    (`core.entities.STATE_ISO3`): без зависимых территорий и агрегатов; `False` — всё, что есть
+    в потоках (так было до 14.11.2026; нужно только для сравнения «было → стало»)."""
     er = read_imf("exchange_rates")
     er = er[er.TYPE_OF_TRANSFORMATION == "EOP_RT"].pivot_table(
         index=["iso3", "month"], values="value", aggfunc="first").rename(columns={"value": "fx"})
@@ -115,6 +119,8 @@ def load_panel(last_month: str = LAST_MONTH) -> pd.DataFrame:
     p = er.join(il, how="outer").join(cpi, how="outer").join(ir, how="outer") \
         .join(bm, how="outer").join(xg, how="outer").reset_index()
     p = p[(p.month >= FIRST_MONTH) & (p.month <= last_month)]
+    if states_only:
+        p = entities.states_only(p)
     # полная сетка месяцев внутри страны, чтобы лаги считались по календарю, а не по строкам
     idx = full_grid(p.groupby("iso3").month.agg(["min", "max"]), names=["iso3", "month"], freq="M")
     p = p.set_index(["iso3", "month"]).reindex(idx).reset_index()

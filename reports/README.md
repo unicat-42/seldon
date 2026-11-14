@@ -84,3 +84,5 @@ target name between feature set and suffix (e.g., `pitf_metrics_summary.csv` ins
 - `2026-11-12-session-stage3-1.md`, `-2.md`, `-3.md` — Stage 3 structural conflict, dyads, and FX blocks.
 - `2026-11-13-session-stage4-1.md`, `-2.md`, `-3.md` — Stage 4 FX contagion, monthly conflict escalation, network contagion & CSD.
 - `2026-11-13-session-stage5-1.md`, `-2.md`, `-3.md` — Stage 5 static web showcase export, UI & verification views.
+- `2026-11-14-session-party-ideology.md`, `2026-11-14-session-democ-fx.md` — off-pipeline study: ruling-party ideology, turnover and democracy level on real-time V-Dem vintages (negative result).
+- `2026-11-14-session-state-universe.md` — production fix: FX models restricted to sovereign states, before vs. after; `make variants` tables are stale until recomputed.
