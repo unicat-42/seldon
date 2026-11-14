@@ -50,12 +50,12 @@ of (event, non-event) pairs ranked in the right order: `0.5` is a coin flip, `1.
 | Onset of state-based armed conflict ($\ge$ 25 battle deaths) next year | Global, countries at peace; 151 onsets (1996–2025) | 3.7% | `pitf` (logistic regression) | **0.825** [0.780, 0.867] | 0.859 |
 | | | | baseline: conflict-history decay | 0.761 [0.707, 0.816] | 0.788 |
 | Currency devaluation $\ge$ 25%/yr over the next 2 years (Dec-to-Dec vs USD) | Global, own-currency states; 246 events (1996–2023) | 8.0% | logistic regression (`logit_long`) | **0.677** [0.612, 0.740] | 0.710 |
-| | | | ExtraTrees (`extree_long`) | 0.686 [0.603, 0.776] | 0.781 |
-| | Post-Soviet; 37 events | 14.5% | logistic regression | 0.586 [0.468, 0.745] | 0.672 |
+| | | | ExtraTrees (`extree_long`) | 0.673 [0.599, 0.753] | 0.758 |
+| | Post-Soviet; 37 events | 14.5% | logistic regression | 0.585 [0.466, 0.744] | 0.654 |
 | Monthly exchange-rate jump $\ge$ 15% within the next 12 months | Global, states only; 2,103 windows (1996–2024) | 4.9% | logistic regression (`econ_kr`) | **0.619** [0.563, 0.680] | 0.669 |
-| | Post-Soviet; 370 windows | 9.7% | logistic regression (`econ_kr`) | 0.439 [0.325, 0.548] | 0.550 |
+| | Post-Soviet; 370 windows | 9.7% | logistic regression (`econ_kr`) | 0.425 [0.312, 0.534] | 0.541 |
 | Monthly exchange-rate jump $\ge$ 15% within 12 months (challenger) | Global, states only; 2,103 windows (1996–2024) | 4.9% | `live_fx_swap` (live peg & reserve drain) | **0.658** [0.606, 0.734] | 0.737 |
-| | Post-Soviet; 370 windows | 9.7% | `live_fx_swap` | 0.471 [0.371, 0.565] | 0.542 |
+| | Post-Soviet; 370 windows | 9.7% | `live_fx_swap` | 0.471 [0.373, 0.579] | 0.562 |
 | Systemic banking crisis over the next 2 years | BIS countries outside JST training sample; 9 pre-crisis years (1990–2015) | 3.3% | Bank of England ExtraTrees (`full`, with yield curve) | 0.671 [0.517, 0.798] | 0.745 |
 | | Same, without interest rates & broad money; 30 pre-crisis years | 6.4% | ExtraTrees (`nomoney`) | 0.546 [0.414, 0.654] | 0.496 |
 

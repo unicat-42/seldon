@@ -8,8 +8,8 @@ Languages: English (`README.md`, `ROADMAP.md`, `reports/README.md`) and Russian 
 ## Core Domains & Benchmarks (Post-Audit, Expanding Window)
 
 - **State-based armed conflict onset (`state_war25`, >= 25 battle deaths in T+1, UCDP 26.1):** `pitf` logistic model achieves `0.825` [0.780, 0.867] pooled ROC AUC (`0.859` within-year) across 4,075 peaceful country-years (1996–2025), beating conflict-decay baseline (`0.761`) by `+0.064`.
-- **Annual currency devaluation (`deval25`, >= 25% Dec-to-Dec USD depreciation over t+1..t+2):** `logit_long` achieves `0.702` [0.639, 0.768] pooled ROC AUC (`0.739` within-year) globally; `0.586` on post-Soviet states.
-- **Monthly FX jump (`deval15`, >= 15% single-month USD jump within 12 months):** production `econ_kr` achieves `0.640` globally (`0.439` post-Soviet); live peg-and-reserve-drain challenger `live_fx_swap` achieves `0.669` [0.622, 0.738] globally (`0.744` within-year).
+- **Annual currency devaluation (`deval25`, >= 25% Dec-to-Dec USD depreciation over t+1..t+2):** `logit_long` achieves `0.677` [0.612, 0.740] pooled ROC AUC (`0.710` within-year) across independent states globally; `0.585` on post-Soviet states.
+- **Monthly FX jump (`deval15`, >= 15% single-month USD jump within 12 months):** production `econ_kr` achieves `0.619` globally (`0.425` post-Soviet); live peg-and-reserve-drain challenger `live_fx_swap` achieves `0.658` [0.606, 0.734] globally (`0.737` within-year).
 - **Systemic banking crisis (t+1..t+2, Bank of England / Bluwstein et al. ExtraTrees transfer to out-of-JST BIS countries):** `0.671` [0.517, 0.798] pooled AUC (`0.745` within-year) with yield curve (`26` countries); `0.546` without yield curve / broad money.
 
 ## Key Documentation
